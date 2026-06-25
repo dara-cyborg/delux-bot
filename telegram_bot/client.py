@@ -342,3 +342,58 @@ def delete_webhook(bot_token: str, drop_pending_updates: bool = False) -> Dict[s
     redacted = redact_token(bot_token)
     logger.info(f"Telegram webhook deleted (bot: {redacted})")
     return result
+
+
+def send_alert_with_tenant_credentials(
+    tenant_id: str,
+    tenant_bot_token: str,
+    tenant_chat_id: str,
+    message: str,
+    parse_mode: str = PARSE_MODE_HTML,
+) -> Dict[str, Any]:
+    """
+    Send an alert message to a tenant using their Telegram credentials.
+    
+    This method is called by the backend when publishing new orders to Heroku.
+    It uses the tenant's specific bot token and chat ID to send the message.
+    
+    Args:
+        tenant_id: Tenant identifier (for logging/tracking)
+        tenant_bot_token: Telegram bot token belonging to the tenant
+        tenant_chat_id: Telegram chat ID for the tenant
+        message: Message text to send
+        parse_mode: Parse mode for formatting (HTML or Markdown)
+    
+    Returns:
+        Message response from Telegram API
+    
+    Raises:
+        TelegramConfigError: If configuration is missing or invalid
+        TelegramAPIError: If the API request fails
+    """
+    if not tenant_bot_token:
+        raise TelegramConfigError(f"Telegram bot token not configured for tenant {tenant_id}")
+    if not tenant_chat_id:
+        raise TelegramConfigError(f"Telegram chat ID not configured for tenant {tenant_id}")
+    if not message:
+        raise TelegramConfigError("Message text is required")
+    
+    data = {
+        'chat_id': tenant_chat_id,
+        'text': message,
+        'parse_mode': parse_mode,
+    }
+    
+    try:
+        result = _make_request('POST', 'sendMessage', tenant_bot_token, data)
+        redacted = redact_token(tenant_bot_token)
+        logger.info(
+            f"Alert sent to tenant {tenant_id} "
+            f"(chat: {tenant_chat_id}, bot: {redacted})"
+        )
+        return result
+    except TelegramAPIError as exc:
+        logger.error(
+            f"Failed to send alert to tenant {tenant_id}: {exc.message}"
+        )
+        raise

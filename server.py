@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import FastAPI, Body, Header, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from telegram_bot.client import (
+    send_alert_with_tenant_credentials,
     send_message,
     send_message_with_buttons,
     edit_message_text,
@@ -19,13 +21,46 @@ from telegram_bot.client import (
 )
 from telegram_bot.commands import handle_command
 from telegram_bot.callback_handler import handle_callback_query
+from telegram_bot.message_builder import build_order_message
+from telegram_bot.storage import (
+    get_tenant_by_chat_id,
+    register_storage_provider,
+)
+from telegram_bot.tenant_store import (
+    init_db,
+    get_tenant_by_chat_id as tenant_store_get_tenant_by_chat_id,
+    get_tenant_telegram_config,
+    get_tenant_sessions,
+    get_session_orders as tenant_store_get_session_orders,
+    get_tenant_orders_by_date as tenant_store_get_tenant_orders_by_date,
+    save_order,
+    save_tenant_telegram_config,
+)
 
 logger = logging.getLogger(__name__)
 app = FastAPI(title="Delux Crawler Telegram Bot Webhook")
 
 WEBHOOK_SECRET_ENV = "TELEGRAM_WEBHOOK_SECRET"
 BOT_TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
+API_ACCESS_TOKEN_ENV = "X_ACCESS_TOKEN"
 WEBHOOK_ROUTE_PREFIX = "/telegram/webhook"
+
+
+class TelegramConfigRequest(BaseModel):
+    enabled: bool = True
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    telegram_message_template: Optional[str] = None
+
+
+class OrderCreateRequest(BaseModel):
+    session_id: str
+    commenter: str
+    comment: str
+    comment_id: Optional[str] = None
+    collected_at: Optional[str] = None
+    profile_url: Optional[str] = None
+    order_date: Optional[str] = None
 
 
 def _get_env(name: str, required: bool = False) -> str:
@@ -46,9 +81,121 @@ def _get_bot_token() -> str:
     return token
 
 
+def _get_access_token() -> str:
+    token = _get_env(API_ACCESS_TOKEN_ENV, required=True)
+    return token
+
+
+def _validate_access_token(header_token: str | None = None) -> None:
+    expected = _get_access_token()
+    if header_token != expected:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _tenant_lookup_callback(chat_id: int | str) -> Optional[str]:
+    tenant_config = tenant_store_get_tenant_by_chat_id(str(chat_id))
+    if not tenant_config:
+        return None
+    return tenant_config.get("tenant_id")
+
+
+def _tenant_sessions_paginated(tenant_id: str, page: int, page_size: int = 10):
+    sessions = get_tenant_sessions(tenant_id, limit=page_size)
+    start = page * page_size
+    return sessions[start:start + page_size]
+
+
+def _tenant_session_orders(tenant_id: str, session_id: str, limit: int = 500):
+    return tenant_store_get_session_orders(tenant_id, session_id, limit)
+
+
+def _tenant_orders_by_date(tenant_id: str, order_date: str, limit: int = 500):
+    return tenant_store_get_tenant_orders_by_date(tenant_id, order_date, limit)
+
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    init_db()
+    register_storage_provider(
+        get_sessions_paginated=_tenant_sessions_paginated,
+        get_session_orders=_tenant_session_orders,
+        get_tenant_orders_by_date=_tenant_orders_by_date,
+        get_tenant_by_chat_id=_tenant_lookup_callback,
+    )
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/tenants/{tenant_id}/telegram/config")
+async def update_tenant_telegram_config(
+    tenant_id: str,
+    config: TelegramConfigRequest,
+    x_access_token: str | None = Header(None, alias="X-Access-Token"),
+) -> JSONResponse:
+    _validate_access_token(x_access_token)
+
+    if config.enabled and (not config.telegram_bot_token or not config.telegram_chat_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Enabled Telegram configuration requires telegram_bot_token and telegram_chat_id",
+        )
+
+    saved_config = save_tenant_telegram_config(
+        tenant_id=tenant_id,
+        enabled=config.enabled,
+        bot_token=config.telegram_bot_token,
+        chat_id=config.telegram_chat_id,
+        message_template=config.telegram_message_template,
+    )
+
+    return JSONResponse({"ok": True, "tenant_id": tenant_id, "telegram_config": saved_config})
+
+
+@app.post("/api/tenants/{tenant_id}/orders")
+async def create_tenant_order(
+    tenant_id: str,
+    order: OrderCreateRequest,
+    x_access_token: str | None = Header(None, alias="X-Access-Token"),
+) -> JSONResponse:
+    _validate_access_token(x_access_token)
+
+    saved_order = save_order(
+        tenant_id=tenant_id,
+        session_id=order.session_id,
+        commenter=order.commenter,
+        comment=order.comment,
+        comment_id=order.comment_id,
+        collected_at=order.collected_at,
+        profile_url=order.profile_url,
+        order_date=order.order_date,
+        source_host="api",
+    )
+
+    telegram_config = get_tenant_telegram_config(tenant_id)
+    if telegram_config and telegram_config.get("telegram_enabled"):
+        message_text = build_order_message(
+            commenter=order.commenter,
+            comment=order.comment,
+            profile_url=order.profile_url,
+            collected_at=order.collected_at,
+            comment_id=order.comment_id,
+            template=telegram_config.get("telegram_message_template"),
+        )
+        try:
+            send_alert_with_tenant_credentials(
+                tenant_id=tenant_id,
+                tenant_bot_token=telegram_config.get("telegram_bot_token", ""),
+                tenant_chat_id=telegram_config.get("telegram_chat_id", ""),
+                message=message_text,
+            )
+        except TelegramAPIError as exc:
+            logger.error(f"Failed to deliver tenant alert for {tenant_id}: {exc}")
+            raise HTTPException(status_code=502, detail=str(exc))
+
+    return JSONResponse({"ok": True, "tenant_id": tenant_id, "order": saved_order})
 
 
 @app.post(f"{WEBHOOK_ROUTE_PREFIX}/{{secret}}")
@@ -70,7 +217,11 @@ async def telegram_webhook(
             if chat_id is None or not text:
                 return JSONResponse({"ok": True})
 
-            response = handle_command(bot_token, chat_id, text)
+            # Resolve tenant from chat_id
+            tenant_id = get_tenant_by_chat_id(chat_id) or ""
+            logger.debug(f"Webhook message from chat {chat_id}, resolved tenant: {tenant_id or '(none)'}")
+
+            response = handle_command(bot_token, chat_id, text, tenant_id=tenant_id)
             if response.get("buttons"):
                 send_message_with_buttons(
                     bot_token=bot_token,
@@ -99,7 +250,11 @@ async def telegram_webhook(
             if callback_query_id is None or chat_id is None or message_id is None:
                 return JSONResponse({"ok": True})
 
-            response = handle_callback_query(bot_token, data, chat_id, message_id)
+            # Resolve tenant from chat_id
+            tenant_id = get_tenant_by_chat_id(chat_id) or ""
+            logger.debug(f"Webhook callback from chat {chat_id}, resolved tenant: {tenant_id or '(none)'}")
+
+            response = handle_callback_query(bot_token, data, chat_id, message_id, tenant_id=tenant_id)
             if response.get("text") is not None:
                 edit_message_text(
                     bot_token=bot_token,

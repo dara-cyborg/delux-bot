@@ -16,31 +16,36 @@ from telegram_bot.local_orders import order_history_by_commenter
 SessionsCallback = Callable[[str, int, int], List[Dict[str, Any]]]
 SessionOrdersCallback = Callable[[str, str, int], List[Dict[str, Any]]]
 OrdersByDateCallback = Callable[[str, str, int], List[Dict[str, Any]]]
+TenantLookupCallback = Callable[[int | str], Optional[str]]
 
 
 _sessions_callback: Optional[SessionsCallback] = None
 _session_orders_callback: Optional[SessionOrdersCallback] = None
 _orders_by_date_callback: Optional[OrdersByDateCallback] = None
+_tenant_lookup_callback: Optional[TenantLookupCallback] = None
 
 
 def register_storage_provider(
     get_sessions_paginated: Optional[SessionsCallback] = None,
     get_session_orders: Optional[SessionOrdersCallback] = None,
     get_tenant_orders_by_date: Optional[OrdersByDateCallback] = None,
+    get_tenant_by_chat_id: Optional[TenantLookupCallback] = None,
 ) -> None:
     """Register tenant-aware storage callbacks for the Telegram Bot."""
-    global _sessions_callback, _session_orders_callback, _orders_by_date_callback
+    global _sessions_callback, _session_orders_callback, _orders_by_date_callback, _tenant_lookup_callback
     _sessions_callback = get_sessions_paginated
     _session_orders_callback = get_session_orders
     _orders_by_date_callback = get_tenant_orders_by_date
+    _tenant_lookup_callback = get_tenant_by_chat_id
 
 
 def reset_storage_provider() -> None:
     """Clear any registered tenant-aware storage callbacks."""
-    global _sessions_callback, _session_orders_callback, _orders_by_date_callback
+    global _sessions_callback, _session_orders_callback, _orders_by_date_callback, _tenant_lookup_callback
     _sessions_callback = None
     _session_orders_callback = None
     _orders_by_date_callback = None
+    _tenant_lookup_callback = None
 
 
 def _default_get_sessions_paginated(
@@ -149,3 +154,22 @@ def get_tenant_orders_by_date(
     if _orders_by_date_callback:
         return _orders_by_date_callback(tenant_id, order_date, limit)
     return _default_get_tenant_orders_by_date(tenant_id, order_date, limit)
+
+
+def get_tenant_by_chat_id(chat_id: int | str) -> Optional[str]:
+    """
+    Look up tenant_id by Telegram chat_id.
+    
+    This is used by the webhook to resolve which tenant owns a Telegram chat.
+    The backend should implement this callback to query the tenant-chat mapping table.
+    
+    Args:
+        chat_id: Telegram chat ID (can be int or str)
+    
+    Returns:
+        tenant_id if found, None otherwise
+    """
+    if _tenant_lookup_callback:
+        return _tenant_lookup_callback(chat_id)
+    # Default: no tenant found in local mode
+    return None
