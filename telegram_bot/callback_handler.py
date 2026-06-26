@@ -13,7 +13,7 @@ from telegram_bot.session_manager import (
     get_customers_for_session,
     get_orders_for_customer,
 )
-from telegram_bot.utils import build_callback_data, format_session_label
+from telegram_bot.utils import build_callback_data, format_local_time, format_session_label
 from telegram_bot.config import BUTTON_CLOSE_MENU
 
 
@@ -135,13 +135,11 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
             text_lines = [f"👤 <b>Orders for {full_name}:</b>\n"]
             for i, o in enumerate(orders, 1):
                 comment = o['comment']
-                time_str = o['collected_at']
+                time_str = format_local_time(o.get('collected_at', ''))
                 text_lines.append(
                     f"{i}. <b>Order:</b> {comment}\n"
                     f"   <b>Time:</b> {time_str}"
                 )
-                if o.get('profile_url'):
-                    text_lines.append(f"   <b>Profile:</b> {o['profile_url']}")
                 text_lines.append("")
                 
             buttons = [
@@ -176,7 +174,7 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
                     orders = get_session_orders(tenant_id, session_id, limit=100)
                 except Exception:
                     orders = []
-                session_name = session_id
+                session_name = format_session_label('', session_id)
                 back_callback = build_callback_data('btn_session', session_id)
                 
             if not orders:
@@ -196,7 +194,7 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
             for i, o in enumerate(orders[:15], 1):
                 commenter = o['commenter']
                 comment = o['comment']
-                time_str = o['collected_at'].split(" ")[-1] if " " in o['collected_at'] else o['collected_at']
+                time_str = format_local_time(o.get('collected_at', ''))
                 text_lines.append(f"{i}. 👤 <b>{commenter}</b>: {comment} (at {time_str})")
                 
             if len(orders) > 15:

@@ -201,22 +201,18 @@ def build_order_details(
         commenter: Customer name
         comment: Order comment
         collected_at: Collection time
-        profile_url: Customer profile URL
+        profile_url: Customer profile URL (ignored)
     
     Returns:
         HTML-formatted order details
     """
-    safe_commenter = escape_html(commenter)
     safe_comment = escape_html(comment)
-    safe_profile = escape_html(profile_url) if profile_url else "N/A"
-    safe_time = escape_html(collected_at) if collected_at else "N/A"
+    safe_time = escape_html(format_local_time(collected_at)) if collected_at else "N/A"
     
     return f"""{EMOJI_ORDER} <b>Order Details</b>
 
-<b>Customer:</b> {safe_commenter}
 <b>Order:</b> {safe_comment}
-<b>Time:</b> {safe_time}
-<b>Profile:</b> {safe_profile}"""
+<b>Time:</b> {safe_time}"""
 
 
 def build_pagination_info(page: int, total_pages: int) -> str:
