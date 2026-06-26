@@ -346,27 +346,37 @@ async def tenant_telegram_webhook(
     
     Validates secret against tenant's stored webhook secret and ensures
     incoming chat_id matches the tenant's configured Telegram chat.
+    Silently drops requests from unregistered users/tenants.
     """
-    # Validate webhook secret
-    if not validate_webhook_secret(tenant_id, secret):
-        if x_telegram_secret != secret:
-            logger.warning(f"Invalid webhook secret for tenant {tenant_id}")
-            raise HTTPException(status_code=403, detail="Invalid webhook secret")
-    
-    # Get tenant config
-    tenant_config = get_tenant_telegram_config(tenant_id)
-    if not tenant_config or not tenant_config.get("telegram_enabled"):
-        logger.warning(f"Webhook received for disabled tenant {tenant_id}")
-        raise HTTPException(status_code=404, detail="Tenant not configured")
-    
-    bot_token = tenant_config.get("telegram_bot_token")
-    configured_chat_id = tenant_config.get("telegram_chat_id")
-    
-    if not bot_token or not configured_chat_id:
-        logger.warning(f"Incomplete tenant config for {tenant_id}")
-        raise HTTPException(status_code=400, detail="Tenant config incomplete")
-    
     try:
+        # Validate webhook secret - catch all errors gracefully
+        try:
+            if not validate_webhook_secret(tenant_id, secret):
+                if x_telegram_secret != secret:
+                    logger.warning(f"Invalid webhook secret for tenant {tenant_id}")
+                    return JSONResponse({"ok": False}, status_code=401)
+        except Exception as exc:
+            logger.warning(f"Webhook validation error for tenant {tenant_id}: {exc}")
+            return JSONResponse({"ok": False}, status_code=401)
+        
+        # Get tenant config - catch errors gracefully
+        try:
+            tenant_config = get_tenant_telegram_config(tenant_id)
+        except Exception as exc:
+            logger.warning(f"Failed to get config for tenant {tenant_id}: {exc}")
+            return JSONResponse({"ok": False}, status_code=401)
+        
+        if not tenant_config or not tenant_config.get("telegram_enabled"):
+            logger.warning(f"Webhook received for disabled tenant {tenant_id}")
+            return JSONResponse({"ok": False}, status_code=401)
+        
+        bot_token = tenant_config.get("telegram_bot_token")
+        configured_chat_id = tenant_config.get("telegram_chat_id")
+        
+        if not bot_token or not configured_chat_id:
+            logger.warning(f"Incomplete tenant config for {tenant_id}")
+            return JSONResponse({"ok": False}, status_code=401)
+        
         if "message" in update and isinstance(update["message"], dict):
             message = update["message"]
             chat = message.get("chat") or {}

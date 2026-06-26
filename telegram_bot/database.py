@@ -224,9 +224,26 @@ class PostgresBackend(DatabaseBackend):
         self.connection_string = connection_string
         self._conn: Optional[Any] = None
 
-    def _get_conn(self) -> Any:
-        """Get or create database connection."""
+    def _is_conn_alive(self) -> bool:
+        """Check if connection is still alive."""
         if self._conn is None or self._conn.closed:
+            return False
+        try:
+            # Try a simple query to verify connection
+            self._conn.execute("SELECT 1")
+            return True
+        except Exception:
+            return False
+
+    def _get_conn(self) -> Any:
+        """Get or create database connection, reconnecting if lost."""
+        if not self._is_conn_alive():
+            # Close broken connection and create new one
+            if self._conn is not None:
+                try:
+                    self._conn.close()
+                except Exception:
+                    pass
             self._conn = psycopg.connect(self.connection_string)
         return self._conn
 
@@ -371,7 +388,7 @@ class PostgresBackend(DatabaseBackend):
             conn.commit()
             return cursor
         except Exception:
-            conn.rollback()
+            self._safe_rollback(conn)
             raise
 
     def _dict_from_cursor_row(self, cursor: Any, row: Any) -> Optional[Dict[str, Any]]:
@@ -394,8 +411,22 @@ class PostgresBackend(DatabaseBackend):
             conn.commit()
             return result
         except Exception:
-            conn.rollback()
+            self._safe_rollback(conn)
             raise
+
+    def _safe_rollback(self, conn: Any) -> None:
+        """Safely rollback a connection, handling already-closed connections."""
+        try:
+            conn.rollback()
+        except Exception:
+            # Connection is already closed or lost, just close it
+            try:
+                conn.close()
+            except Exception:
+                pass
+            # Mark for reconnection
+            if self._conn is conn:
+                self._conn = None
 
     def execute_all(self, query: str, params: tuple = ()) -> List[Dict[str, Any]]:
         """Execute a query and return all rows as list of dicts."""
@@ -407,7 +438,7 @@ class PostgresBackend(DatabaseBackend):
             conn.commit()
             return result
         except Exception:
-            conn.rollback()
+            self._safe_rollback(conn)
             raise
 
     def close(self) -> None:
