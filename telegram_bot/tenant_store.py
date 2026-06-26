@@ -6,8 +6,9 @@ Supports both SQLite (local development) and Postgres (production).
 
 import json
 import secrets
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, List, Dict, Any
+from zoneinfo import ZoneInfo
 import uuid
 
 from telegram_bot.database import get_db, init_database
@@ -148,6 +149,15 @@ def save_order(
     return db.execute_one("SELECT * FROM orders WHERE order_id = ?", (order_id,))
 
 
+def _format_cambodia_session_name(session_date: str) -> str:
+    """Format a session name using Cambodia local date."""
+    try:
+        date_obj = datetime.fromisoformat(session_date).date()
+    except ValueError:
+        date_obj = datetime.now(ZoneInfo("Asia/Phnom_Penh")).date()
+    return date_obj.strftime("%d-%b-%Y")
+
+
 def get_or_create_session(
     tenant_id: str,
     session_id: str,
@@ -167,13 +177,15 @@ def get_or_create_session(
     if row:
         return row
 
-    # Create new session
+    # Create new session using a readable Cambodia date if no explicit name is provided
+    session_name = session_name or _format_cambodia_session_name(session_date)
+
     db.execute("""
         INSERT INTO sessions
         (session_id, tenant_id, session_name, session_date, session_state,
          created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (session_id, tenant_id, session_name or session_id, session_date,
+    """, (session_id, tenant_id, session_name, session_date,
           "active", now, now))
 
     return db.execute_one(

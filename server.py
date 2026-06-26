@@ -111,6 +111,11 @@ def _validate_webhook_secret(secret: str, header_token: str | None = None) -> No
         raise HTTPException(status_code=403, detail="Forbidden")
 
 
+def _is_message_not_modified_error(exc: TelegramAPIError) -> bool:
+    message = str(exc.message or "").lower()
+    return "message is not modified" in message
+
+
 def _get_bot_token() -> str:
     token = _get_env(BOT_TOKEN_ENV, required=True)
     return token
@@ -137,6 +142,11 @@ def _tenant_lookup_callback(chat_id: int | str) -> Optional[str]:
     if not tenant_config:
         return None
     return tenant_config.get("tenant_id")
+
+
+def _is_message_not_modified_error(exc: TelegramAPIError) -> bool:
+    message = str(exc.message or "").lower()
+    return "message is not modified" in message
 
 
 def _tenant_sessions_paginated(tenant_id: str, page: int, page_size: int = 10):
@@ -419,14 +429,22 @@ async def tenant_telegram_webhook(
             
             response = handle_callback_query(bot_token, data, chat_id, message_id, tenant_id=tenant_id)
             if response.get("text") is not None:
-                edit_message_text(
-                    bot_token=bot_token,
-                    chat_id=str(chat_id),
-                    message_id=int(message_id),
-                    text=response["text"],
-                    buttons=response.get("buttons"),
-                    parse_mode=response.get("parse_mode", "HTML"),
-                )
+                try:
+                    edit_message_text(
+                        bot_token=bot_token,
+                        chat_id=str(chat_id),
+                        message_id=int(message_id),
+                        text=response["text"],
+                        buttons=response.get("buttons"),
+                        parse_mode=response.get("parse_mode", "HTML"),
+                    )
+                except TelegramAPIError as exc:
+                    if _is_message_not_modified_error(exc):
+                        logger.warning(
+                            "Telegram callback edit returned message not modified; ignoring harmless error."
+                        )
+                    else:
+                        raise
             answer_callback_query(
                 bot_token=bot_token,
                 callback_query_id=str(callback_query_id),
@@ -507,14 +525,22 @@ async def telegram_webhook(
 
             response = handle_callback_query(bot_token, data, chat_id, message_id, tenant_id=tenant_id)
             if response.get("text") is not None:
-                edit_message_text(
-                    bot_token=bot_token,
-                    chat_id=str(chat_id),
-                    message_id=int(message_id),
-                    text=response["text"],
-                    buttons=response.get("buttons"),
-                    parse_mode=response.get("parse_mode", "HTML"),
-                )
+                try:
+                    edit_message_text(
+                        bot_token=bot_token,
+                        chat_id=str(chat_id),
+                        message_id=int(message_id),
+                        text=response["text"],
+                        buttons=response.get("buttons"),
+                        parse_mode=response.get("parse_mode", "HTML"),
+                    )
+                except TelegramAPIError as exc:
+                    if _is_message_not_modified_error(exc):
+                        logger.warning(
+                            "Telegram callback edit returned message not modified; ignoring harmless error."
+                        )
+                    else:
+                        raise
             answer_callback_query(
                 bot_token=bot_token,
                 callback_query_id=str(callback_query_id),
