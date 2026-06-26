@@ -55,11 +55,11 @@ async def lifespan(app: FastAPI):
         get_tenant_orders_by_date=_tenant_orders_by_date,
         get_tenant_by_chat_id=_tenant_lookup_callback,
     )
-    app.add_middleware(RateLimitMiddleware, requests_per_minute=100)
     yield
 
 
 app = FastAPI(title="Delux Crawler Telegram Bot Webhook", lifespan=lifespan)
+app.add_middleware(RateLimitMiddleware, requests_per_minute=100)
 
 WEBHOOK_SECRET_ENV = "TELEGRAM_WEBHOOK_SECRET"
 BOT_TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
