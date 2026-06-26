@@ -5,7 +5,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
-from fastapi import FastAPI, Body, Header, HTTPException
+from fastapi import FastAPI, Body, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -65,6 +65,7 @@ WEBHOOK_SECRET_ENV = "TELEGRAM_WEBHOOK_SECRET"
 BOT_TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
 API_ACCESS_TOKEN_ENV = "X_ACCESS_TOKEN"
 WEBHOOK_ROUTE_PREFIX = "/telegram/webhook"
+TENANT_WEBHOOK_ROUTE_PREFIX = "/telegram/tenant-webhook"
 
 
 class TelegramConfigRequest(BaseModel):
@@ -146,6 +147,7 @@ async def health() -> dict[str, str]:
 
 @app.post("/api/tenants/{tenant_id}/telegram/config")
 async def update_tenant_telegram_config(
+    request: Request,
     tenant_id: str,
     config: TelegramConfigRequest,
     x_access_token: str | None = Header(None, alias="X-Access-Token"),
@@ -182,8 +184,18 @@ async def update_tenant_telegram_config(
         app_domain = os.environ.get("APP_DOMAIN")
         if not app_domain:
             host = os.environ.get("HOSTNAME")
-            app_domain = f"https://{host}" if host else "https://your-app.herokuapp.com"
-        webhook_url = f"{app_domain.rstrip('/')}{WEBHOOK_ROUTE_PREFIX}/{tenant_id}/{webhook_secret}"
+            if host:
+                app_domain = f"https://{host}"
+            else:
+                forwarded_proto = request.headers.get("x-forwarded-proto", "https")
+                host_header = request.headers.get("host")
+                if not host_header:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="HOSTNAME or APP_DOMAIN environment variable is required to set webhook URL",
+                    )
+                app_domain = f"{forwarded_proto}://{host_header}"
+        webhook_url = f"{app_domain.rstrip('/')}{TENANT_WEBHOOK_ROUTE_PREFIX}/{tenant_id}/{webhook_secret}"
 
         try:
             set_webhook(
