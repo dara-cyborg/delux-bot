@@ -72,12 +72,17 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
                 'parse_mode': 'HTML'
             }
             
-        # 3. btn_custlist|{session_id}
+        # 3. btn_custlist|{session_id}|{page}
         elif action == 'btn_custlist':
             session_id = parts[1]
+            page = int(parts[2]) if len(parts) > 2 and parts[2] else 0
             customers = get_customers_for_session(tenant_id, session_id)
+            page_size = 10
+            start = page * page_size
+            end = (page + 1) * page_size
+            page_customers = customers[start:end]
             
-            if not customers:
+            if not page_customers:
                 text = "👥 <b>Customers:</b>\n\n<i>No customers or orders yet in this session.</i>"
                 buttons = [
                     [{"text": "🔙 Back to Session", "callback_data": build_callback_data('btn_session', session_id)}],
@@ -93,7 +98,7 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
             text_lines = ["👥 <b>Customers in Session:</b>\n"]
             buttons = []
             
-            for i, c in enumerate(customers[:15], 1):
+            for i, c in enumerate(page_customers, start + 1):
                 name = c['name']
                 count = c['order_count']
                 text_lines.append(f"{i}. 👤 <b>{name}</b> — {count} order(s)")
@@ -104,8 +109,23 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
                     "callback_data": callback_data
                 }])
                 
-            if len(customers) > 15:
-                text_lines.append(f"\n<i>...and {len(customers) - 15} more customer(s).</i>")
+            if len(customers) > page_size:
+                range_end = min(end, len(customers))
+                text_lines.append(f"\n<i>Showing {start + 1}-{range_end} of {len(customers)} customer(s).</i>")
+            
+            nav_buttons = []
+            if page > 0:
+                nav_buttons.append({
+                    "text": "◀️ Prev",
+                    "callback_data": build_callback_data('btn_custlist', session_id, str(page - 1))
+                })
+            if len(customers) > (page + 1) * page_size:
+                nav_buttons.append({
+                    "text": "Next ▶️",
+                    "callback_data": build_callback_data('btn_custlist', session_id, str(page + 1))
+                })
+            if nav_buttons:
+                buttons.append(nav_buttons)
                 
             buttons.append([
                     {"text": "🔙 Back", "callback_data": build_callback_data('btn_session', session_id)},
@@ -156,23 +176,25 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
                 'parse_mode': 'HTML'
             }
             
-        # 5. btn_ordlist|{session_id}
+        # 5. btn_ordlist|{session_id}|{page}
         elif action == 'btn_ordlist':
             session_id = parts[1]
+            page = int(parts[2]) if len(parts) > 2 and parts[2] else 0
             
             from telegram_bot.storage import get_session_orders, get_tenant_orders_by_date
+            page_size = 10
             if session_id == "today":
                 from datetime import datetime
                 today_str = datetime.now().strftime("%Y-%m-%d")
                 try:
-                    orders = get_tenant_orders_by_date(tenant_id, today_str, limit=50)
+                    orders = get_tenant_orders_by_date(tenant_id, today_str, limit=200)
                 except Exception:
                     orders = []
                 session_name = f"Today's Orders ({today_str})"
                 back_callback = build_callback_data('btn_sessions_page', '0')
             else:
                 try:
-                    orders = get_session_orders(tenant_id, session_id, limit=100)
+                    orders = get_session_orders(tenant_id, session_id, limit=200)
                 except Exception:
                     orders = []
                 session_name = format_session_label('', session_id)
@@ -190,23 +212,40 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
                     'notification': 'No orders found',
                     'parse_mode': 'HTML'
                 }
-                
+            
+            start = page * page_size
+            end = (page + 1) * page_size
+            page_orders = orders[start:end]
+            
             text_lines = [f"📦 <b>Orders in Session {session_name[:20]}:</b>\n"]
-            for i, o in enumerate(orders[:15], 1):
+            for i, o in enumerate(page_orders, start + 1):
                 commenter = o['commenter']
                 comment = o['comment']
                 time_str = format_local_time(o.get('collected_at', ''))
                 text_lines.append(f"{i}. 👤 <b>{commenter}</b>: {comment} (at {time_str})")
                 
-            if len(orders) > 15:
-                text_lines.append(f"\n<i>...and {len(orders) - 15} more order(s).</i>")
+            if len(orders) > page_size:
+                range_end = min(end, len(orders))
+                text_lines.append(f"\n<i>Showing {start + 1}-{range_end} of {len(orders)} order(s).</i>")
                 
-            buttons = [
-                [
-                    {"text": "🔙 Back", "callback_data": back_callback},
-                    {"text": "❌ Close", "callback_data": "btn_close_menu"}
-                ]
-            ]
+            buttons = []
+            nav_buttons = []
+            if page > 0:
+                nav_buttons.append({
+                    "text": "◀️ Prev",
+                    "callback_data": build_callback_data('btn_ordlist', session_id, str(page - 1))
+                })
+            if len(orders) > (page + 1) * page_size:
+                nav_buttons.append({
+                    "text": "Next ▶️",
+                    "callback_data": build_callback_data('btn_ordlist', session_id, str(page + 1))
+                })
+            if nav_buttons:
+                buttons.append(nav_buttons)
+            buttons.append([
+                {"text": "🔙 Back", "callback_data": back_callback},
+                {"text": "❌ Close", "callback_data": "btn_close_menu"}
+            ])
             return {
                 'text': "\n".join(text_lines),
                 'buttons': buttons,
