@@ -103,6 +103,7 @@ def get_tenant_by_chat_id(chat_id: str) -> Optional[Dict[str, Any]]:
         Dictionary with tenant_id and telegram config, or None if not found
     """
     db = get_db()
+    chat_id = str(chat_id)
     row = db.execute_one(
         """SELECT t.tenant_id, tc.telegram_chat_id, tc.telegram_bot_token,
                   tc.telegram_enabled, tc.telegram_message_template
@@ -185,16 +186,20 @@ def get_tenant_sessions(tenant_id: str, limit: int = 100) -> List[Dict[str, Any]
     """Get all sessions for a tenant"""
     db = get_db()
     return db.execute_all("""
-        SELECT s.*, COUNT(o.order_id) as order_count
+        SELECT s.*, COALESCE(o.order_count, 0) AS order_count
         FROM sessions s
-        LEFT JOIN orders o
+        LEFT JOIN (
+            SELECT tenant_id, session_id, COUNT(order_id) AS order_count
+            FROM orders
+            WHERE tenant_id = ?
+            GROUP BY tenant_id, session_id
+        ) o
             ON s.tenant_id = o.tenant_id
             AND s.session_id = o.session_id
         WHERE s.tenant_id = ?
-        GROUP BY s.session_id
         ORDER BY s.session_date DESC
         LIMIT ?
-    """, (tenant_id, limit))
+    """, (tenant_id, tenant_id, limit))
 
 
 def get_session_orders(

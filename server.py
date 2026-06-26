@@ -213,6 +213,16 @@ async def update_tenant_telegram_config(
         logger.info(f"Tenant {tenant_id} webhook URL: {webhook_url}")
 
         try:
+            delete_webhook(
+                bot_token=config.telegram_bot_token,
+                drop_pending_updates=True,
+            )
+        except TelegramAPIError as exc:
+            logger.warning(
+                f"Failed to clear pending Telegram updates for tenant {tenant_id}: {exc}"
+            )
+
+        try:
             set_webhook(
                 bot_token=config.telegram_bot_token,
                 webhook_url=webhook_url,
