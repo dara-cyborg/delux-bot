@@ -41,12 +41,13 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
             res['notification'] = f"Loaded page {page + 1}"
             return res
             
-        # 2. btn_session|{session_id}
+        # 2. btn_session|{session_id}|{session_date?}
         elif action == 'btn_session':
             session_id = parts[1]
+            session_date = parts[2] if len(parts) > 2 and parts[2] else session_id
             summary = get_session_summary(tenant_id, session_id)
             
-            name = format_session_label(summary.get('session_name') or session_id, session_id)
+            name = format_session_label(summary.get('session_name') or session_id, session_date)
             text = (
                 f"📅 <b>Session Details</b>\n\n"
                 f"<b>Name:</b> {name}\n"

@@ -366,9 +366,13 @@ class PostgresBackend(DatabaseBackend):
     def execute(self, query: str, params: tuple = ()) -> Any:
         """Execute a query."""
         conn = self._get_conn()
-        cursor = self._execute(query, params)
-        conn.commit()
-        return cursor
+        try:
+            cursor = self._execute(query, params)
+            conn.commit()
+            return cursor
+        except Exception:
+            conn.rollback()
+            raise
 
     def _dict_from_cursor_row(self, cursor: Any, row: Any) -> Optional[Dict[str, Any]]:
         """Convert a cursor row to a dictionary safely for psycopg cursors."""
@@ -382,15 +386,29 @@ class PostgresBackend(DatabaseBackend):
 
     def execute_one(self, query: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
         """Execute a query and return single row as dict."""
-        cursor = self._execute(query, params)
-        row = cursor.fetchone()
-        return self._dict_from_cursor_row(cursor, row)
+        conn = self._get_conn()
+        try:
+            cursor = self._execute(query, params)
+            row = cursor.fetchone()
+            result = self._dict_from_cursor_row(cursor, row)
+            conn.commit()
+            return result
+        except Exception:
+            conn.rollback()
+            raise
 
     def execute_all(self, query: str, params: tuple = ()) -> List[Dict[str, Any]]:
         """Execute a query and return all rows as list of dicts."""
-        cursor = self._execute(query, params)
-        rows = cursor.fetchall()
-        return [self._dict_from_cursor_row(cursor, row) for row in rows if row is not None]
+        conn = self._get_conn()
+        try:
+            cursor = self._execute(query, params)
+            rows = cursor.fetchall()
+            result = [self._dict_from_cursor_row(cursor, row) for row in rows if row is not None]
+            conn.commit()
+            return result
+        except Exception:
+            conn.rollback()
+            raise
 
     def close(self) -> None:
         """Close database connection."""

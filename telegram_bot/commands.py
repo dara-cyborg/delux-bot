@@ -25,20 +25,25 @@ def get_sessions_menu(tenant_id: str, page: int = 0) -> dict:
     has_next = len(next_sessions) > 0
     
     text_lines = [
-        f"📋 <b>Your Sessions (Page {page + 1}):</b>\n"
+        f"📋 <b>ការឡាយទាំងអស់ (Page {page + 1}):</b>\n"
     ]
     buttons = []
     
     for s in sessions:
         name = s['session_name'] or s['session_id']
-        state = s.get('session_state', 'active')
         text_lines.append(
-            f"📅 <b>{name}</b> ({state})\n"
+            f"📅 <b>{name}</b>\n"
             f"   Orders: {s['order_count']} | Customers: {s['customer_count']}\n"
         )
+        session_date = s.get('session_date')
+        if session_date:
+            button_data = build_callback_data('btn_session', s['session_id'], session_date)
+        else:
+            button_data = build_callback_data('btn_session', s['session_id'])
+
         buttons.append([{
             "text": f"📅 {name[:25]}",
-            "callback_data": build_callback_data('btn_session', s['session_id'])
+            "callback_data": button_data
         }])
     
     # Add pagination buttons

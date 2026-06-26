@@ -12,6 +12,7 @@ from telegram_bot.config import (
     EMOJI_CUSTOMERS,
     EMOJI_EDIT,
 )
+from telegram_bot.utils import format_local_time
 from typing import Optional, List, Dict
 
 
