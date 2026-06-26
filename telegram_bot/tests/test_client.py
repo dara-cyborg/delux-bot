@@ -1,3 +1,4 @@
+import asyncio
 import json
 import urllib.error
 import urllib.request
@@ -13,6 +14,7 @@ from telegram_bot.client import (
     TelegramAPIError,
     TelegramConfigError,
     _make_request,
+    _make_request_async,
 )
 from telegram_bot.config import TELEGRAM_API_BASE_URL
 
@@ -53,6 +55,19 @@ def test_make_request_success(monkeypatch):
     monkeypatch.setattr(urllib.request, 'urlopen', fake_urlopen)
 
     response = _make_request('POST', 'sendMessage', 'token:123', {'chat_id': '1', 'text': 'hi'})
+    assert response == {'message_id': 123}
+
+
+def test_make_request_async(monkeypatch):
+    result = {'ok': True, 'result': {'message_id': 123}}
+    response_bytes = json.dumps(result).encode('utf-8')
+
+    def fake_urlopen(request, timeout=None):
+        return DummyResponse(response_bytes)
+
+    monkeypatch.setattr(urllib.request, 'urlopen', fake_urlopen)
+
+    response = asyncio.run(_make_request_async('POST', 'sendMessage', 'token:123', {'chat_id': '1', 'text': 'hi'}))
     assert response == {'message_id': 123}
 
 
@@ -97,10 +112,10 @@ def test_make_request_network_error(monkeypatch):
 
 def test_send_message_validates_config():
     with pytest.raises(TelegramConfigError):
-        send_message('', '1', 'hi')
+        asyncio.run(send_message('', '1', 'hi'))
 
     with pytest.raises(TelegramConfigError):
-        send_message('token:123', '', 'hi')
+        asyncio.run(send_message('token:123', '', 'hi'))
 
 
 def test_send_message_passes_payload(monkeypatch):
@@ -116,7 +131,7 @@ def test_send_message_passes_payload(monkeypatch):
 
     monkeypatch.setattr(urllib.request, 'urlopen', fake_urlopen)
 
-    result = send_message('token:123', '1', 'hello')
+    result = asyncio.run(send_message('token:123', '1', 'hello'))
     assert result['message_id'] == 99
 
 
@@ -130,12 +145,12 @@ def test_send_message_with_buttons(monkeypatch):
 
     monkeypatch.setattr(urllib.request, 'urlopen', fake_urlopen)
 
-    result = send_message_with_buttons(
+    result = asyncio.run(send_message_with_buttons(
         'token:123',
         '1',
         'hello',
         [[{'text': 'Click', 'callback_data': 'click'}]],
-    )
+    ))
 
     assert result['message_id'] == 88
 
@@ -151,7 +166,7 @@ def test_edit_message_text(monkeypatch):
 
     monkeypatch.setattr(urllib.request, 'urlopen', fake_urlopen)
 
-    result = edit_message_text('token:123', '1', 5, 'updated')
+    result = asyncio.run(edit_message_text('token:123', '1', 5, 'updated'))
     assert result['message_id'] == 77
 
 
@@ -165,7 +180,7 @@ def test_answer_callback_query(monkeypatch):
 
     monkeypatch.setattr(urllib.request, 'urlopen', fake_urlopen)
 
-    result = answer_callback_query('token:123', 'q1', 'Thanks')
+    result = asyncio.run(answer_callback_query('token:123', 'q1', 'Thanks'))
     assert result is True
 
 
@@ -183,5 +198,5 @@ def test_get_bot_info_validates_token(monkeypatch):
 
     monkeypatch.setattr(urllib.request, 'urlopen', fake_urlopen)
 
-    result = get_bot_info('token:123')
+    result = asyncio.run(get_bot_info('token:123'))
     assert result['username'] == 'test_bot'

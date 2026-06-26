@@ -12,7 +12,7 @@ def test_tenant_config_returns_clear_error_when_access_token_missing(monkeypatch
 
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(
-            server.update_tenant_telegram_config(
+            server._update_tenant_telegram_config_internal(
                 tenant_id="test-tenant",
                 config=server.TelegramConfigRequest(
                     enabled=True,
@@ -32,7 +32,7 @@ def test_tenant_config_rejects_wrong_access_token(monkeypatch):
 
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(
-            server.update_tenant_telegram_config(
+            server._update_tenant_telegram_config_internal(
                 tenant_id="test-tenant",
                 config=server.TelegramConfigRequest(
                     enabled=True,
@@ -57,11 +57,20 @@ def test_tenant_config_saves_with_matching_access_token(monkeypatch):
         "telegram_chat_id": "456",
         "telegram_message_template": None,
     }
-    monkeypatch.setattr(server, "get_bot_info", lambda bot_token: {"username": "test_bot"})
+    monkeypatch.setenv("X_ACCESS_TOKEN", "expected-token")
+
+    saved_config = {
+        "tenant_id": "test-tenant",
+        "telegram_enabled": True,
+        "telegram_bot_token": "123:test-token",
+        "telegram_chat_id": "456",
+        "telegram_message_template": None,
+    }
+    monkeypatch.setattr(server, "get_or_create_tenant_webhook_secret", lambda tenant_id: "webhook-secret")
     monkeypatch.setattr(server, "save_tenant_telegram_config", lambda **kwargs: saved_config)
 
     response = asyncio.run(
-        server.update_tenant_telegram_config(
+        server._update_tenant_telegram_config_internal(
             tenant_id="test-tenant",
             config=server.TelegramConfigRequest(
                 enabled=True,
@@ -73,21 +82,18 @@ def test_tenant_config_saves_with_matching_access_token(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert json.loads(response.body) == {
-        "ok": True,
-        "tenant_id": "test-tenant",
-        "telegram_config": saved_config,
-    }
+    body = json.loads(response.body)
+    assert body["ok"] is True
+    assert body["tenant_id"] == "test-tenant"
+    assert body["telegram_config"]["tenant_id"] == "test-tenant"
+    assert body["telegram_config"]["telegram_enabled"] == True
+    assert body["telegram_config"]["telegram_chat_id"] == "456"
+    assert "webhook_url" in body
+    assert "webhook_secret" in body
 
 
 def test_tenant_config_rejects_invalid_telegram_bot_token(monkeypatch):
     monkeypatch.setenv("X_ACCESS_TOKEN", "expected-token")
-    monkeypatch.setattr(
-        server,
-        "get_bot_info",
-        lambda bot_token: (_ for _ in ()).throw(server.TelegramAPIError("Unauthorized", 401)),
-    )
-
     def fail_save(**kwargs):
         raise AssertionError("invalid Telegram config should not be saved")
 
@@ -95,7 +101,7 @@ def test_tenant_config_rejects_invalid_telegram_bot_token(monkeypatch):
 
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(
-            server.update_tenant_telegram_config(
+            server._update_tenant_telegram_config_internal(
                 tenant_id="test-tenant",
                 config=server.TelegramConfigRequest(
                     enabled=True,
@@ -107,4 +113,31 @@ def test_tenant_config_rejects_invalid_telegram_bot_token(monkeypatch):
         )
 
     assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "Invalid Telegram bot token"
+    assert exc_info.value.detail == "Invalid Telegram bot token format"
+
+
+def test_telegram_webhook_returns_immediately_and_schedules_background_processing(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "shared-secret")
+    monkeypatch.setattr(
+        server,
+        "_get_bot_token",
+        lambda: (_ for _ in ()).throw(AssertionError("inline processing should not run")),
+    )
+
+    scheduled = []
+
+    class DummyBackgroundTasks:
+        def add_task(self, func, *args, **kwargs):
+            scheduled.append((func, args, kwargs))
+
+    response = asyncio.run(
+        server.telegram_webhook(
+            secret="shared-secret",
+            background_tasks=DummyBackgroundTasks(),
+            update={"message": {"chat": {"id": 1}, "text": "hello"}},
+        )
+    )
+
+    assert response.status_code == 200
+    assert len(scheduled) == 1
+    assert scheduled[0][0] is server._process_webhook_update

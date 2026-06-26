@@ -1,5 +1,6 @@
 """Telegram polling loop and update routing."""
 
+import asyncio
 import logging
 import threading
 import time
@@ -74,20 +75,20 @@ class TelegramBot:
             response = handle_command(self.bot_token, chat_id, text)
             if response:
                 if response.get('buttons'):
-                    send_message_with_buttons(
+                    asyncio.run(send_message_with_buttons(
                         bot_token=self.bot_token,
                         chat_id=str(chat_id),
                         text=response['text'],
                         buttons=response['buttons'],
                         parse_mode=response.get('parse_mode', 'HTML'),
-                    )
+                    ))
                 else:
-                    send_message(
+                    asyncio.run(send_message(
                         bot_token=self.bot_token,
                         chat_id=str(chat_id),
                         text=response['text'],
                         parse_mode=response.get('parse_mode', 'HTML'),
-                    )
+                    ))
         except TelegramAPIError as exc:
             logger.error(f"Telegram command handler failed: {exc}")
 
@@ -100,18 +101,18 @@ class TelegramBot:
         try:
             response = handle_callback_query(self.bot_token, data, chat_id, message_id)
             if response and 'text' in response:
-                edit_message_text(
+                asyncio.run(edit_message_text(
                     bot_token=self.bot_token,
                     chat_id=str(chat_id),
                     message_id=message_id,
                     text=response['text'],
                     buttons=response.get('buttons'),
-                )
-            answer_callback_query(
+                ))
+            asyncio.run(answer_callback_query(
                 bot_token=self.bot_token,
                 callback_query_id=callback_query_id,
                 text=response.get('notification'),
                 show_alert=False,
-            )
+            ))
         except TelegramAPIError as exc:
             logger.error(f"Telegram callback handler failed: {exc}")

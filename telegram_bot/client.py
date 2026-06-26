@@ -5,6 +5,7 @@ Provides low-level HTTP communication with Telegram Bot API.
 Uses urllib (no external dependencies).
 """
 
+import asyncio
 import json
 import logging
 import urllib.request
@@ -115,7 +116,17 @@ def _make_request(
         raise TelegramAPIError(f"Invalid JSON response: {e}", "JSON_ERROR")
 
 
-def send_message(
+async def _make_request_async(
+    method: str,
+    endpoint: str,
+    bot_token: str,
+    data: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Run a blocking Telegram request in a worker thread so async routes stay responsive."""
+    return await asyncio.to_thread(_make_request, method, endpoint, bot_token, data)
+
+
+async def send_message(
     bot_token: str,
     chat_id: str,
     text: str,
@@ -145,14 +156,14 @@ def send_message(
         'parse_mode': parse_mode,
     }
     
-    result = _make_request('POST', 'sendMessage', bot_token, data)
+    result = await _make_request_async('POST', 'sendMessage', bot_token, data)
     redacted = redact_token(bot_token)
     logger.info(f"Message sent to Telegram (chat: {chat_id}, bot: {redacted})")
     
     return result
 
 
-def send_message_with_buttons(
+async def send_message_with_buttons(
     bot_token: str,
     chat_id: str,
     text: str,
@@ -195,7 +206,7 @@ def send_message_with_buttons(
         },
     }
     
-    result = _make_request('POST', 'sendMessage', bot_token, data)
+    result = await _make_request_async('POST', 'sendMessage', bot_token, data)
     redacted = redact_token(bot_token)
     logger.info(
         f"Message with buttons sent to Telegram (chat: {chat_id}, bot: {redacted})"
@@ -204,7 +215,7 @@ def send_message_with_buttons(
     return result
 
 
-def edit_message_text(
+async def edit_message_text(
     bot_token: str,
     chat_id: str,
     message_id: int,
@@ -244,7 +255,7 @@ def edit_message_text(
             'inline_keyboard': buttons,
         }
     
-    result = _make_request('POST', 'editMessageText', bot_token, data)
+    result = await _make_request_async('POST', 'editMessageText', bot_token, data)
     redacted = redact_token(bot_token)
     logger.info(
         f"Message edited in Telegram (chat: {chat_id}, message: {message_id}, bot: {redacted})"
@@ -253,7 +264,7 @@ def edit_message_text(
     return result
 
 
-def answer_callback_query(
+async def answer_callback_query(
     bot_token: str,
     callback_query_id: str,
     text: Optional[str] = None,
@@ -284,25 +295,25 @@ def answer_callback_query(
         'show_alert': show_alert,
     }
     
-    _make_request('POST', 'answerCallbackQuery', bot_token, data)
+    await _make_request_async('POST', 'answerCallbackQuery', bot_token, data)
     redacted = redact_token(bot_token)
     logger.info(f"Callback answered in Telegram (bot: {redacted})")
     
     return True
 
 
-def get_bot_info(bot_token: str) -> Dict[str, Any]:
+async def get_bot_info(bot_token: str) -> Dict[str, Any]:
     """Validate a bot token and return Telegram's bot profile."""
     if not bot_token:
         raise TelegramConfigError("Telegram bot token is not configured")
 
-    result = _make_request('POST', 'getMe', bot_token, {})
+    result = await _make_request_async('POST', 'getMe', bot_token, {})
     redacted = redact_token(bot_token)
     logger.info(f"Telegram bot token validated (bot: {redacted})")
     return result
 
 
-def set_webhook(
+async def set_webhook(
     bot_token: str,
     webhook_url: str,
     secret_token: Optional[str] = None,
@@ -332,7 +343,7 @@ def set_webhook(
     if allowed_updates is not None:
         data['allowed_updates'] = allowed_updates
 
-    result = _make_request('POST', 'setWebhook', bot_token, data)
+    result = await _make_request_async('POST', 'setWebhook', bot_token, data)
     redacted = redact_token(bot_token)
     logger.info(
         f"Telegram webhook set to {webhook_url} (bot: {redacted})"
@@ -340,7 +351,7 @@ def set_webhook(
     return result
 
 
-def delete_webhook(bot_token: str, drop_pending_updates: bool = False) -> Dict[str, Any]:
+async def delete_webhook(bot_token: str, drop_pending_updates: bool = False) -> Dict[str, Any]:
     """Remove the Telegram webhook for the bot."""
     if not bot_token:
         raise TelegramConfigError("Telegram bot token is not configured")
@@ -349,13 +360,13 @@ def delete_webhook(bot_token: str, drop_pending_updates: bool = False) -> Dict[s
         'drop_pending_updates': drop_pending_updates,
     }
 
-    result = _make_request('POST', 'deleteWebhook', bot_token, data)
+    result = await _make_request_async('POST', 'deleteWebhook', bot_token, data)
     redacted = redact_token(bot_token)
     logger.info(f"Telegram webhook deleted (bot: {redacted})")
     return result
 
 
-def send_alert_with_tenant_credentials(
+async def send_alert_with_tenant_credentials(
     tenant_id: str,
     tenant_bot_token: str,
     tenant_chat_id: str,
@@ -396,7 +407,7 @@ def send_alert_with_tenant_credentials(
     }
     
     try:
-        result = _make_request('POST', 'sendMessage', tenant_bot_token, data)
+        result = await _make_request_async('POST', 'sendMessage', tenant_bot_token, data)
         redacted = redact_token(tenant_bot_token)
         logger.info(
             f"Alert sent to tenant {tenant_id} "
