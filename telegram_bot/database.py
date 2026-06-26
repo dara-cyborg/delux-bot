@@ -230,6 +230,11 @@ class PostgresBackend(DatabaseBackend):
             self._conn = psycopg.connect(self.connection_string)
         return self._conn
 
+    @staticmethod
+    def _convert_placeholders(query: str) -> str:
+        """Convert SQLite ? placeholders to Postgres %s placeholders."""
+        return query.replace('?', '%s')
+
     def init_schema(self) -> None:
         """Initialize Postgres database schema for multi-tenant support."""
         conn = self._get_conn()
@@ -344,7 +349,7 @@ class PostgresBackend(DatabaseBackend):
         """Execute a query."""
         conn = self._get_conn()
         cursor = conn.cursor()
-        cursor.execute(query, params)
+        cursor.execute(self._convert_placeholders(query), params)
         conn.commit()
         return cursor
 
@@ -352,7 +357,7 @@ class PostgresBackend(DatabaseBackend):
         """Execute a query and return single row as dict."""
         conn = self._get_conn()
         cursor = conn.cursor()
-        cursor.execute(query, params)
+        cursor.execute(self._convert_placeholders(query), params)
         row = cursor.fetchone()
         if not row:
             return None
@@ -363,7 +368,7 @@ class PostgresBackend(DatabaseBackend):
         """Execute a query and return all rows as list of dicts."""
         conn = self._get_conn()
         cursor = conn.cursor()
-        cursor.execute(query, params)
+        cursor.execute(self._convert_placeholders(query), params)
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
 
