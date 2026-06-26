@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 from fastapi import FastAPI, Body, Header, HTTPException
@@ -36,10 +37,29 @@ from telegram_bot.tenant_store import (
     get_tenant_orders_by_date as tenant_store_get_tenant_orders_by_date,
     save_order,
     save_tenant_telegram_config,
+    get_or_create_tenant_webhook_secret,
+    validate_webhook_secret,
 )
+from telegram_bot.audit import log_tenant_config_change, log_order_ingestion, log_webhook_event
+from telegram_bot.middleware import RateLimitMiddleware
 
 logger = logging.getLogger(__name__)
-app = FastAPI(title="Delux Crawler Telegram Bot Webhook")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    register_storage_provider(
+        get_sessions_paginated=_tenant_sessions_paginated,
+        get_session_orders=_tenant_session_orders,
+        get_tenant_orders_by_date=_tenant_orders_by_date,
+        get_tenant_by_chat_id=_tenant_lookup_callback,
+    )
+    app.add_middleware(RateLimitMiddleware, requests_per_minute=100)
+    yield
+
+
+app = FastAPI(title="Delux Crawler Telegram Bot Webhook", lifespan=lifespan)
 
 WEBHOOK_SECRET_ENV = "TELEGRAM_WEBHOOK_SECRET"
 BOT_TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
@@ -119,17 +139,6 @@ def _tenant_orders_by_date(tenant_id: str, order_date: str, limit: int = 500):
     return tenant_store_get_tenant_orders_by_date(tenant_id, order_date, limit)
 
 
-@app.on_event("startup")
-async def on_startup() -> None:
-    init_db()
-    register_storage_provider(
-        get_sessions_paginated=_tenant_sessions_paginated,
-        get_session_orders=_tenant_session_orders,
-        get_tenant_orders_by_date=_tenant_orders_by_date,
-        get_tenant_by_chat_id=_tenant_lookup_callback,
-    )
-
-
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -153,7 +162,7 @@ async def update_tenant_telegram_config(
         try:
             get_bot_info(config.telegram_bot_token)
         except TelegramAPIError as exc:
-            logger.error(f"Invalid Telegram bot token for tenant {tenant_id}: {exc}")
+            logger.error(f"Invalid Telegram bot token for tenant {tenant_id}")
             raise HTTPException(status_code=400, detail="Invalid Telegram bot token") from exc
 
     saved_config = save_tenant_telegram_config(
@@ -163,8 +172,47 @@ async def update_tenant_telegram_config(
         chat_id=config.telegram_chat_id,
         message_template=config.telegram_message_template,
     )
-
-    return JSONResponse({"ok": True, "tenant_id": tenant_id, "telegram_config": saved_config})
+    
+    # Log the configuration change
+    log_tenant_config_change(
+        tenant_id=tenant_id,
+        action="update_config" if config.enabled else "disable_config",
+        enabled=config.enabled,
+        chat_id=config.telegram_chat_id,
+        remote_addr=x_access_token,  # We don't have direct access to client IP here
+        status="success"
+    )
+    
+    # Generate or retrieve webhook secret for tenant
+    webhook_secret = None
+    webhook_url = None
+    if config.enabled:
+        webhook_secret = get_or_create_tenant_webhook_secret(tenant_id)
+        # Build webhook URL (requires app to know its own domain)
+        app_domain = os.environ.get("APP_DOMAIN", "https://your-app.herokuapp.com")
+        webhook_url = f"{app_domain}/telegram/tenant-webhook/{tenant_id}/{webhook_secret}"
+    
+    # Return safe config without raw bot token
+    safe_config = {
+        "tenant_id": saved_config.get("tenant_id"),
+        "telegram_enabled": saved_config.get("telegram_enabled"),
+        "telegram_chat_id": saved_config.get("telegram_chat_id"),
+        "telegram_message_template": saved_config.get("telegram_message_template"),
+        "created_at": saved_config.get("created_at"),
+        "updated_at": saved_config.get("updated_at"),
+    }
+    
+    response_data = {
+        "ok": True,
+        "tenant_id": tenant_id,
+        "telegram_config": safe_config,
+    }
+    
+    if webhook_url:
+        response_data["webhook_url"] = webhook_url
+        response_data["webhook_secret"] = webhook_secret
+    
+    return JSONResponse(response_data)
 
 
 @app.post("/api/tenants/{tenant_id}/orders")
@@ -185,6 +233,14 @@ async def create_tenant_order(
         profile_url=order.profile_url,
         order_date=order.order_date,
         source_host="api",
+    )
+    
+    # Log order ingestion
+    log_order_ingestion(
+        tenant_id=tenant_id,
+        session_id=order.session_id,
+        order_id=saved_order.get("order_id"),
+        status="success"
     )
 
     telegram_config = get_tenant_telegram_config(tenant_id)
@@ -209,6 +265,131 @@ async def create_tenant_order(
             raise HTTPException(status_code=502, detail=str(exc))
 
     return JSONResponse({"ok": True, "tenant_id": tenant_id, "order": saved_order})
+
+
+@app.post("/telegram/tenant-webhook/{tenant_id}/{secret}")
+async def tenant_telegram_webhook(
+    tenant_id: str,
+    secret: str,
+    update: dict[str, Any] = Body(...),
+    x_telegram_secret: str | None = Header(None, alias="X-Telegram-Bot-Api-Secret-Token"),
+) -> JSONResponse:
+    """
+    Tenant-specific Telegram webhook for processing updates.
+    
+    Validates secret against tenant's stored webhook secret and ensures
+    incoming chat_id matches the tenant's configured Telegram chat.
+    """
+    # Validate webhook secret
+    if not validate_webhook_secret(tenant_id, secret):
+        if x_telegram_secret != secret:
+            logger.warning(f"Invalid webhook secret for tenant {tenant_id}")
+            raise HTTPException(status_code=403, detail="Invalid webhook secret")
+    
+    # Get tenant config
+    tenant_config = get_tenant_telegram_config(tenant_id)
+    if not tenant_config or not tenant_config.get("telegram_enabled"):
+        logger.warning(f"Webhook received for disabled tenant {tenant_id}")
+        raise HTTPException(status_code=404, detail="Tenant not configured")
+    
+    bot_token = tenant_config.get("telegram_bot_token")
+    configured_chat_id = tenant_config.get("telegram_chat_id")
+    
+    if not bot_token or not configured_chat_id:
+        logger.warning(f"Incomplete tenant config for {tenant_id}")
+        raise HTTPException(status_code=400, detail="Tenant config incomplete")
+    
+    try:
+        if "message" in update and isinstance(update["message"], dict):
+            message = update["message"]
+            chat = message.get("chat") or {}
+            chat_id = chat.get("id")
+            text = message.get("text", "").strip()
+            
+            if chat_id is None or not text:
+                return JSONResponse({"ok": True})
+            
+            # Validate that message came from tenant's configured chat
+            if str(chat_id) != str(configured_chat_id):
+                logger.warning(
+                    f"Message from unauthorized chat {chat_id} for tenant {tenant_id} "
+                    f"(expected {configured_chat_id})"
+                )
+                raise HTTPException(status_code=403, detail="Chat ID mismatch")
+            
+            logger.debug(f"Tenant webhook message from {tenant_id} in chat {chat_id}")
+            log_webhook_event(tenant_id, "message", chat_id, "success")
+            
+            response = handle_command(bot_token, chat_id, text, tenant_id=tenant_id)
+            if response.get("buttons"):
+                send_message_with_buttons(
+                    bot_token=bot_token,
+                    chat_id=str(chat_id),
+                    text=response["text"],
+                    buttons=response["buttons"],
+                    parse_mode=response.get("parse_mode", "HTML"),
+                )
+            else:
+                send_message(
+                    bot_token=bot_token,
+                    chat_id=str(chat_id),
+                    text=response["text"],
+                    parse_mode=response.get("parse_mode", "HTML"),
+                )
+        
+        elif "callback_query" in update and isinstance(update["callback_query"], dict):
+            callback = update["callback_query"]
+            callback_query_id = callback.get("id")
+            data = callback.get("data", "")
+            message = callback.get("message") or {}
+            chat = message.get("chat") or {}
+            chat_id = chat.get("id")
+            message_id = message.get("message_id")
+            
+            if callback_query_id is None or chat_id is None or message_id is None:
+                return JSONResponse({"ok": True})
+            
+            # Validate that callback came from tenant's configured chat
+            if str(chat_id) != str(configured_chat_id):
+                logger.warning(
+                    f"Callback from unauthorized chat {chat_id} for tenant {tenant_id} "
+                    f"(expected {configured_chat_id})"
+                )
+                raise HTTPException(status_code=403, detail="Chat ID mismatch")
+            
+            logger.debug(f"Tenant webhook callback from {tenant_id} in chat {chat_id}")
+            log_webhook_event(tenant_id, "callback_query", chat_id, "success")
+            
+            response = handle_callback_query(bot_token, data, chat_id, message_id, tenant_id=tenant_id)
+            if response.get("text") is not None:
+                edit_message_text(
+                    bot_token=bot_token,
+                    chat_id=str(chat_id),
+                    message_id=int(message_id),
+                    text=response["text"],
+                    buttons=response.get("buttons"),
+                    parse_mode=response.get("parse_mode", "HTML"),
+                )
+            answer_callback_query(
+                bot_token=bot_token,
+                callback_query_id=str(callback_query_id),
+                text=response.get("notification", ""),
+                show_alert=False,
+            )
+    
+    except TelegramConfigError as exc:
+        logger.error(f"Telegram config error in tenant webhook: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    except TelegramAPIError as exc:
+        logger.error(f"Telegram API error in tenant webhook: {exc}")
+        raise HTTPException(status_code=502, detail=str(exc))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(f"Unexpected error in tenant webhook {tenant_id}: {exc}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
+    return JSONResponse({"ok": True})
 
 
 @app.post(f"{WEBHOOK_ROUTE_PREFIX}/{{secret}}")
