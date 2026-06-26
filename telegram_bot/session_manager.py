@@ -24,17 +24,13 @@ def _get_live_session_summary() -> Dict[str, Optional[int]]:
 def get_sessions_paginated(tenant_id: str, page: int, page_size: int = 10) -> List[Dict[str, str]]:
     """Return paginated sessions for a tenant."""
     try:
-        # Query tenant database
+        # Query tenant database. The storage callback owns pagination so that
+        # database-backed providers can use LIMIT/OFFSET-style access.
         sessions = storage_get_sessions_paginated(tenant_id, page, page_size=page_size)
-        
-        # Apply pagination
-        start = page * page_size
-        end = start + page_size
-        paginated = sessions[start:end]
-        
+
         # Calculate customer count for each session
         results = []
-        for s in paginated:
+        for s in sessions:
             session_id = s['session_id']
             orders_list = storage_get_session_orders(tenant_id, session_id, limit=1000)
             customers = set(o['commenter'] for o in orders_list)

@@ -9,6 +9,7 @@ from telegram_bot.client import (
     send_message_with_buttons,
     edit_message_text,
     answer_callback_query,
+    get_bot_info,
     TelegramAPIError,
     TelegramConfigError,
     _make_request,
@@ -166,3 +167,21 @@ def test_answer_callback_query(monkeypatch):
 
     result = answer_callback_query('token:123', 'q1', 'Thanks')
     assert result is True
+
+
+def test_get_bot_info_validates_token(monkeypatch):
+    response_bytes = json.dumps({
+        'ok': True,
+        'result': {'id': 123, 'is_bot': True, 'username': 'test_bot'},
+    }).encode('utf-8')
+
+    def fake_urlopen(request, timeout=None):
+        assert request.full_url == f"{TELEGRAM_API_BASE_URL}/bottoken:123/getMe"
+        body = json.loads(request.data.decode('utf-8'))
+        assert body == {}
+        return DummyResponse(response_bytes)
+
+    monkeypatch.setattr(urllib.request, 'urlopen', fake_urlopen)
+
+    result = get_bot_info('token:123')
+    assert result['username'] == 'test_bot'

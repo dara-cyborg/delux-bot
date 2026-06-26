@@ -7,7 +7,7 @@ def test_handle_start_command():
     response = handle_command('token', 123, '/start')
 
     assert response['parse_mode'] == 'HTML'
-    assert 'Welcome to Delux Crawler Telegram Bot' in response['text']
+    assert 'DELUX Bot' in response['text']
 
 
 def test_handle_help_command():
@@ -19,7 +19,7 @@ def test_handle_help_command():
 
 
 def test_handle_menu_command_when_no_sessions(monkeypatch):
-    monkeypatch.setattr('telegram_bot.commands.get_sessions_paginated', lambda tenant_id, page: [])
+    monkeypatch.setattr('telegram_bot.commands.get_sessions_paginated', lambda tenant_id, page, page_size=10: [])
 
     response = handle_command('token', 123, '/menu')
 

@@ -58,7 +58,7 @@ def init_db():
     # Sessions table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
-            session_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
             tenant_id TEXT NOT NULL,
             session_name TEXT,
             session_date TEXT NOT NULL,
@@ -66,6 +66,7 @@ def init_db():
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             metadata TEXT,
+            PRIMARY KEY (tenant_id, session_id),
             FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id)
                 ON DELETE CASCADE
         )
@@ -90,7 +91,7 @@ def init_db():
             metadata TEXT,
             FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id)
                 ON DELETE CASCADE,
-            FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+            FOREIGN KEY (tenant_id, session_id) REFERENCES sessions(tenant_id, session_id)
                 ON DELETE CASCADE
         )
     """)
@@ -322,8 +323,8 @@ def get_or_create_session(
     conn.commit()
 
     cursor.execute(
-        "SELECT * FROM sessions WHERE session_id = ?",
-        (session_id,)
+        "SELECT * FROM sessions WHERE session_id = ? AND tenant_id = ?",
+        (session_id, tenant_id)
     )
     result = dict(cursor.fetchone())
     conn.close()
@@ -338,7 +339,9 @@ def get_tenant_sessions(tenant_id: str, limit: int = 100) -> List[Dict[str, Any]
     cursor.execute("""
         SELECT s.*, COUNT(o.order_id) as order_count
         FROM sessions s
-        LEFT JOIN orders o ON s.session_id = o.session_id
+        LEFT JOIN orders o
+            ON s.tenant_id = o.tenant_id
+            AND s.session_id = o.session_id
         WHERE s.tenant_id = ?
         GROUP BY s.session_id
         ORDER BY s.session_date DESC

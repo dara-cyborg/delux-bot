@@ -11,6 +11,7 @@ This package handles:
 from telegram_bot.client import (
     send_message,
     send_message_with_buttons,
+    get_bot_info,
     set_webhook,
     delete_webhook,
     TelegramAPIError,
@@ -31,6 +32,7 @@ from telegram_bot.storage import register_storage_provider, reset_storage_provid
 __all__ = [
     "send_message",
     "send_message_with_buttons",
+    "get_bot_info",
     "set_webhook",
     "delete_webhook",
     "build_order_message",

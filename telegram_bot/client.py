@@ -291,6 +291,17 @@ def answer_callback_query(
     return True
 
 
+def get_bot_info(bot_token: str) -> Dict[str, Any]:
+    """Validate a bot token and return Telegram's bot profile."""
+    if not bot_token:
+        raise TelegramConfigError("Telegram bot token is not configured")
+
+    result = _make_request('POST', 'getMe', bot_token, {})
+    redacted = redact_token(bot_token)
+    logger.info(f"Telegram bot token validated (bot: {redacted})")
+    return result
+
+
 def set_webhook(
     bot_token: str,
     webhook_url: str,

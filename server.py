@@ -14,6 +14,7 @@ from telegram_bot.client import (
     send_message_with_buttons,
     edit_message_text,
     answer_callback_query,
+    get_bot_info,
     set_webhook,
     delete_webhook,
     TelegramAPIError,
@@ -87,7 +88,12 @@ def _get_access_token() -> str:
 
 
 def _validate_access_token(header_token: str | None = None) -> None:
-    expected = _get_access_token()
+    try:
+        expected = _get_access_token()
+    except RuntimeError as exc:
+        logger.error(str(exc))
+        raise HTTPException(status_code=500, detail="API access token is not configured") from exc
+
     if header_token != expected:
         raise HTTPException(status_code=403, detail="Forbidden")
 
@@ -100,7 +106,7 @@ def _tenant_lookup_callback(chat_id: int | str) -> Optional[str]:
 
 
 def _tenant_sessions_paginated(tenant_id: str, page: int, page_size: int = 10):
-    sessions = get_tenant_sessions(tenant_id, limit=page_size)
+    sessions = get_tenant_sessions(tenant_id, limit=(page + 1) * page_size)
     start = page * page_size
     return sessions[start:start + page_size]
 
@@ -142,6 +148,13 @@ async def update_tenant_telegram_config(
             status_code=400,
             detail="Enabled Telegram configuration requires telegram_bot_token and telegram_chat_id",
         )
+
+    if config.enabled and config.telegram_bot_token:
+        try:
+            get_bot_info(config.telegram_bot_token)
+        except TelegramAPIError as exc:
+            logger.error(f"Invalid Telegram bot token for tenant {tenant_id}: {exc}")
+            raise HTTPException(status_code=400, detail="Invalid Telegram bot token") from exc
 
     saved_config = save_tenant_telegram_config(
         tenant_id=tenant_id,

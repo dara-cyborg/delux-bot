@@ -6,7 +6,7 @@ from telegram_bot.callback_handler import handle_callback_query
 def test_handle_session_summary(monkeypatch):
     monkeypatch.setattr(
         'telegram_bot.callback_handler.get_session_summary',
-        lambda session_id: {
+        lambda tenant_id, session_id: {
             'session_name': 'Live Session',
             'order_count': 4,
             'customer_count': 2,
@@ -24,7 +24,7 @@ def test_handle_session_summary(monkeypatch):
 def test_handle_customer_list(monkeypatch):
     monkeypatch.setattr(
         'telegram_bot.callback_handler.get_customers_for_session',
-        lambda session_id: [
+        lambda tenant_id, session_id: [
             {'name': 'Jane', 'order_count': 2},
         ],
     )
@@ -39,13 +39,13 @@ def test_handle_customer_list(monkeypatch):
 def test_handle_customer_orders(monkeypatch):
     monkeypatch.setattr(
         'telegram_bot.callback_handler.get_customers_for_session',
-        lambda session_id: [
+        lambda tenant_id, session_id: [
             {'name': 'Jane', 'order_count': 1},
         ],
     )
     monkeypatch.setattr(
         'telegram_bot.callback_handler.get_orders_for_customer',
-        lambda session_id, customer_name: [
+        lambda tenant_id, session_id, customer_name: [
             {'comment': '2 pcs', 'collected_at': '2026-06-25 15:00'},
         ],
     )
