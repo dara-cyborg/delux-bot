@@ -6,6 +6,7 @@ from telegram_bot.local_orders import order_history_by_commenter
 from telegram_bot.storage import (
     get_sessions_paginated as storage_get_sessions_paginated,
     get_session_orders as storage_get_session_orders,
+    get_session_customer_counts as storage_get_session_customer_counts,
     get_tenant_orders_by_date as storage_get_tenant_orders_by_date,
 )
 
@@ -28,22 +29,21 @@ def get_sessions_paginated(tenant_id: str, page: int, page_size: int = 10) -> Li
         # database-backed providers can use LIMIT/OFFSET-style access.
         sessions = storage_get_sessions_paginated(tenant_id, page, page_size=page_size)
 
-        # Calculate customer count for each session
+        session_ids = [s['session_id'] for s in sessions if s.get('session_id')]
+        customer_counts = storage_get_session_customer_counts(tenant_id, session_ids) if session_ids else {}
+
         results = []
         for s in sessions:
             session_id = s['session_id']
-            orders_list = storage_get_session_orders(tenant_id, session_id, limit=1000)
-            customers = set(o['commenter'] for o in orders_list)
-            
             results.append({
                 'session_id': session_id,
                 'session_name': s['session_name'] or session_id,
                 'session_date': s['session_date'],
                 'order_count': s.get('order_count', 0),
-                'customer_count': len(customers),
+                'customer_count': customer_counts.get(session_id, 0),
                 'session_state': s.get('session_state', 'active'),
             })
-        
+
         return results
     except Exception:
         if page != 0:

@@ -63,3 +63,22 @@ def test_get_orders_for_customer():
     orders_list = get_orders_for_customer('test-tenant', 'current', 'Jane')
     assert len(orders_list) == 1
     assert orders_list[0]['comment'] == 'One'
+
+
+def test_get_sessions_paginated_uses_batch_customer_counts(monkeypatch):
+    sessions = [{
+        'session_id': 's1',
+        'session_name': 'Session 1',
+        'session_date': '2026-06-26',
+        'order_count': 2,
+        'session_state': 'active',
+    }]
+
+    monkeypatch.setattr('telegram_bot.session_manager.storage_get_sessions_paginated', lambda tenant_id, page, page_size=10: sessions)
+    monkeypatch.setattr('telegram_bot.session_manager.storage_get_session_customer_counts', lambda tenant_id, session_ids: {'s1': 2})
+    monkeypatch.setattr('telegram_bot.session_manager.storage_get_session_orders', lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError('session orders should not be queried per session')))
+
+    results = get_sessions_paginated('tenant-1', 0, page_size=5)
+
+    assert results[0]['customer_count'] == 2
+    assert results[0]['session_id'] == 's1'

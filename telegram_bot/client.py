@@ -2,15 +2,14 @@
 Telegram Bot API client.
 
 Provides low-level HTTP communication with Telegram Bot API.
-Uses urllib (no external dependencies).
 """
 
 import asyncio
 import json
 import logging
-import urllib.request
-import urllib.error
 from typing import Optional, Dict, Any
+
+import httpx
 from telegram_bot.config import (
     TELEGRAM_API_BASE_URL,
     TELEGRAM_API_TIMEOUT,
@@ -44,14 +43,14 @@ def _validate_config(bot_token: Optional[str], chat_id: Optional[str]) -> None:
         raise TelegramConfigError("Telegram chat ID is not configured")
 
 
-def _make_request(
+async def _make_request_async(
     method: str,
     endpoint: str,
     bot_token: str,
     data: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Make an HTTP POST request to Telegram Bot API.
+    Make an asynchronous HTTP request to Telegram Bot API.
     
     Args:
         method: HTTP method (POST, GET, etc.)
@@ -66,22 +65,13 @@ def _make_request(
         TelegramAPIError: If the API returns an error
     """
     url = f"{TELEGRAM_API_BASE_URL}/bot{bot_token}/{endpoint}"
-    
+
     try:
-        # Prepare request
-        json_data = json.dumps(data).encode('utf-8')
-        req = urllib.request.Request(
-            url,
-            data=json_data,
-            headers={'Content-Type': 'application/json'},
-            method=method,
-        )
-        
-        # Make request
-        with urllib.request.urlopen(req, timeout=TELEGRAM_API_TIMEOUT) as response:
-            response_data = json.loads(response.read().decode('utf-8'))
-        
-        # Check for API error
+        async with httpx.AsyncClient(timeout=TELEGRAM_API_TIMEOUT) as client:
+            response = await client.request(method, url, json=data)
+            response.raise_for_status()
+            response_data = response.json()
+
         if not response_data.get('ok', False):
             error_msg = response_data.get('description', 'Unknown Telegram API error')
             error_code = response_data.get('error_code')
@@ -90,40 +80,32 @@ def _make_request(
                 f"Telegram API error: {error_msg} (code: {error_code}, bot: {redacted})"
             )
             raise TelegramAPIError(error_msg, error_code)
-        
+
         return response_data.get('result', {})
-    
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode('utf-8')
-        redacted = redact_token(bot_token)
-        logger.error(
-            f"Telegram API HTTP error {e.code}: {error_body} (bot: {redacted})"
-        )
-        raise TelegramAPIError(f"HTTP {e.code}: {error_body}", "HTTP_ERROR")
-    
-    except urllib.error.URLError as e:
-        redacted = redact_token(bot_token)
-        logger.error(
-            f"Telegram API network error: {e.reason} (bot: {redacted})"
-        )
-        raise TelegramAPIError(f"Network error: {e.reason}", "NETWORK_ERROR")
-    
-    except json.JSONDecodeError as e:
-        redacted = redact_token(bot_token)
-        logger.error(
-            f"Telegram API response JSON decode error: {e} (bot: {redacted})"
-        )
-        raise TelegramAPIError(f"Invalid JSON response: {e}", "JSON_ERROR")
 
+    except httpx.HTTPStatusError as exc:
+        response = exc.response
+        error_body = response.text if response is not None else str(exc)
+        status_code = response.status_code if response is not None else 'UNKNOWN'
+        redacted = redact_token(bot_token)
+        logger.error(
+            f"Telegram API HTTP error {status_code}: {error_body} (bot: {redacted})"
+        )
+        raise TelegramAPIError(f"HTTP {status_code}: {error_body}", "HTTP_ERROR")
 
-async def _make_request_async(
-    method: str,
-    endpoint: str,
-    bot_token: str,
-    data: Dict[str, Any],
-) -> Dict[str, Any]:
-    """Run a blocking Telegram request in a worker thread so async routes stay responsive."""
-    return await asyncio.to_thread(_make_request, method, endpoint, bot_token, data)
+    except httpx.RequestError as exc:
+        redacted = redact_token(bot_token)
+        logger.error(
+            f"Telegram API network error: {exc} (bot: {redacted})"
+        )
+        raise TelegramAPIError(f"Network error: {exc}", "NETWORK_ERROR")
+
+    except json.JSONDecodeError as exc:
+        redacted = redact_token(bot_token)
+        logger.error(
+            f"Telegram API response JSON decode error: {exc} (bot: {redacted})"
+        )
+        raise TelegramAPIError(f"Invalid JSON response: {exc}", "JSON_ERROR")
 
 
 async def send_message(

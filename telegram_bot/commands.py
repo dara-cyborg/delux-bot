@@ -13,17 +13,16 @@ from telegram_bot.config import (
 def get_sessions_menu(tenant_id: str, page: int = 0) -> dict:
     """Get the paginated sessions menu for a tenant."""
     page_size = 5
-    sessions = get_sessions_paginated(tenant_id, page=page, page_size=page_size)
-    if not sessions:
+    fetched_sessions = get_sessions_paginated(tenant_id, page=page, page_size=page_size + 1)
+    if not fetched_sessions:
         return {
             'text': '<b>No active sessions are available.</b>\nAdd an order by printing a comment first.',
             'parse_mode': 'HTML',
         }
-    
-    # Check if there is a next page
-    next_sessions = get_sessions_paginated(tenant_id, page=page + 1, page_size=page_size)
-    has_next = len(next_sessions) > 0
-    
+
+    has_next = len(fetched_sessions) > page_size
+    sessions = fetched_sessions[:page_size] if has_next else fetched_sessions
+
     text_lines = [
         f"📋 <b>ការឡាយទាំងអស់ (Page {page + 1}):</b>\n"
     ]

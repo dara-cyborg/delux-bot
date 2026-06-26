@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -46,6 +47,36 @@ from telegram_bot.audit import log_tenant_config_change, log_order_ingestion, lo
 from telegram_bot.middleware import RateLimitMiddleware
 
 logger = logging.getLogger(__name__)
+
+_tenant_config_cache: dict[str, tuple[dict, float]] = {}
+_webhook_secret_cache: dict[str, tuple[bool, float]] = {}
+
+async def get_cached_tenant_config(tenant_id: str) -> dict | None:
+    """Return tenant telegram config from cache or load it from storage."""
+    now = time.monotonic()
+    cached = _tenant_config_cache.get(tenant_id)
+    if cached is not None:
+        config, timestamp = cached
+        if now - timestamp < 60:
+            return config
+
+    config = await asyncio.to_thread(get_tenant_telegram_config, tenant_id)
+    _tenant_config_cache[tenant_id] = (config or {}, now)
+    return config
+
+
+async def get_cached_webhook_secret(tenant_id: str, secret: str) -> bool:
+    """Return cached webhook secret validation result or verify it."""
+    now = time.monotonic()
+    cached = _webhook_secret_cache.get(tenant_id)
+    if cached is not None:
+        valid, timestamp = cached
+        if now - timestamp < 30:
+            return valid
+
+    valid = await asyncio.to_thread(validate_webhook_secret, tenant_id, secret)
+    _webhook_secret_cache[tenant_id] = (valid, now)
+    return valid
 
 
 @asynccontextmanager
@@ -392,7 +423,7 @@ async def tenant_telegram_webhook(
     try:
         # Validate webhook secret - catch all errors gracefully
         try:
-            if not await asyncio.to_thread(validate_webhook_secret, tenant_id, secret):
+            if not await get_cached_webhook_secret(tenant_id, secret):
                 if x_telegram_secret != secret:
                     logger.warning(f"Invalid webhook secret for tenant {tenant_id}")
                     return JSONResponse({"ok": False}, status_code=401)
@@ -402,7 +433,7 @@ async def tenant_telegram_webhook(
         
         # Get tenant config - catch errors gracefully
         try:
-            tenant_config = await asyncio.to_thread(get_tenant_telegram_config, tenant_id)
+            tenant_config = await get_cached_tenant_config(tenant_id)
         except Exception as exc:
             logger.warning(f"Failed to get config for tenant {tenant_id}: {exc}")
             return JSONResponse({"ok": False}, status_code=401)

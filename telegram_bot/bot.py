@@ -11,6 +11,7 @@ from telegram_bot.client import (
     send_message_with_buttons,
     edit_message_text,
     answer_callback_query,
+    _make_request_async,
     TelegramAPIError,
 )
 from telegram_bot.commands import handle_command
@@ -51,13 +52,13 @@ class TelegramBot:
             time.sleep(POLL_INTERVAL_SECONDS)
 
     def _process_updates(self) -> None:
-        from telegram_bot.client import _make_request
-
-        result = _make_request(
-            'GET',
-            'getUpdates',
-            self.bot_token,
-            {'offset': self._offset + 1, 'timeout': 1},
+        result = asyncio.run(
+            _make_request_async(
+                'GET',
+                'getUpdates',
+                self.bot_token,
+                {'offset': self._offset + 1, 'timeout': 1},
+            )
         )
 
         for update in result if isinstance(result, list) else []:

@@ -126,6 +126,25 @@ def _default_get_tenant_orders_by_date(
     return orders[:limit]
 
 
+def _default_get_session_customer_counts(
+    tenant_id: str,
+    session_ids: List[str],
+) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for session_id in session_ids:
+        orders = get_session_orders(tenant_id, session_id, limit=1000)
+        customers = {order.get("commenter") for order in orders if order.get("commenter")}
+        counts[session_id] = len(customers)
+    return counts
+
+
+def get_session_customer_counts(
+    tenant_id: str,
+    session_ids: List[str],
+) -> Dict[str, int]:
+    return _default_get_session_customer_counts(tenant_id, session_ids)
+
+
 def get_sessions_paginated(
     tenant_id: str,
     page: int,
