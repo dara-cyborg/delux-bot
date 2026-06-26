@@ -196,6 +196,7 @@ async def update_tenant_telegram_config(
                     )
                 app_domain = f"{forwarded_proto}://{host_header}"
         webhook_url = f"{app_domain.rstrip('/')}{TENANT_WEBHOOK_ROUTE_PREFIX}/{tenant_id}/{webhook_secret}"
+        logger.info(f"Tenant {tenant_id} webhook URL: {webhook_url}")
 
         try:
             set_webhook(
@@ -205,8 +206,14 @@ async def update_tenant_telegram_config(
                 allowed_updates=["message", "callback_query"],
             )
         except TelegramAPIError as exc:
-            logger.error(f"Failed to set Telegram webhook for tenant {tenant_id}: {exc}")
-            raise HTTPException(status_code=502, detail="Failed to configure Telegram webhook") from exc
+            logger.error(
+                f"Failed to set Telegram webhook for tenant {tenant_id}: {exc}"
+                f"; webhook_url={webhook_url}"
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to configure Telegram webhook: {webhook_url}",
+            ) from exc
 
     # Log the configuration change
     log_tenant_config_change(
