@@ -18,7 +18,7 @@ This package contains Telegram integration support for Delux Crawler.
 - `telegram_bot/client.py` — HTTP wrapper for Telegram Bot API using built-in `urllib`.
 - `telegram_bot/message_builder.py` — HTML-safe message formatting, template processing, and menu text builders.
 - `telegram_bot/bot.py` — Optional polling-based bot lifecycle for incoming Telegram updates.
-- `telegram_bot/server.py` — FastAPI webhook server for hosting only the Telegram bot.
+- `server.py` — FastAPI webhook server and tenant API entrypoint for Heroku.
 - `telegram_bot/commands.py` — Command handler scaffolding for Telegram bot text commands.
 - `telegram_bot/callback_handler.py` — Callback query handler scaffolding for inline button navigation.
 - `telegram_bot/session_manager.py` — Session and order lookup helpers for the future menu flow.
@@ -32,16 +32,35 @@ From the repository root, run:
 python -m pytest telegram_bot/tests -q
 ```
 
+## API documentation
+
+- [Heroku Telegram Bot API Integration](docs/API_INTEGRATION.md) explains how another app or AI agent can call the tenant config and order ingestion APIs.
+- [Multi-Tenant Access Availability](docs/MULTI_TENANT_ACCESS.md) explains the current tenant isolation model, availability, and production limits.
+
 ## Notes
 
 - The package currently uses built-in `urllib` instead of external Telegram SDKs.
 - Order sending is triggered through `backend/routers/telegram.py` via `POST /stupidego/telegram/send-order`.
 - Telegram polling in `telegram_bot/bot.py` is optional and only started when the app is configured to use Telegram.
-- `telegram_bot/server.py` provides a lightweight FastAPI webhook server for Heroku or other HTTPS hosting.
+- `server.py` provides a lightweight FastAPI webhook server and tenant API for Heroku or other HTTPS hosting.
 
 ## Webhook deployment
 
-- Use `telegram_bot/server.py` instead of `telegram_bot/bot.py` for Heroku.
-- Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and `HOSTNAME` in the Heroku environment.
-- Use `telegram_bot/requirements.txt` for minimal Heroku dependency installation.
-- Deploy the bot package only and expose `web: uvicorn telegram_bot.server:app --host 0.0.0.0 --port $PORT` via Procfile.
+- Use `server.py` instead of `telegram_bot/bot.py` for Heroku.
+- Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `HOSTNAME`, and `X_ACCESS_TOKEN` in the Heroku environment.
+- Use `requirements.txt` for minimal Heroku dependency installation.
+- Deploy the bot package and root `server.py`, then expose `web: uvicorn server:app --host 0.0.0.0 --port $PORT` via Procfile.
+
+## Tenant API access
+
+The tenant API endpoints require the caller to send the configured access token
+as an `X-Access-Token` header:
+
+```powershell
+heroku config:set X_ACCESS_TOKEN="shared-secret-token"
+```
+
+Configure Delux Crawler Playwright with the same value when it calls:
+
+- `POST /api/tenants/{tenant_id}/telegram/config`
+- `POST /api/tenants/{tenant_id}/orders`

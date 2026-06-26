@@ -86,3 +86,5 @@ dmypy.json
 
 # Migration backups
 *.sql
+
+__pycache__/
