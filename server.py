@@ -4,6 +4,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Body, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -90,6 +91,18 @@ def _get_env(name: str, required: bool = False) -> str:
     if required and not value:
         raise RuntimeError(f"Environment variable {name} is required")
     return value
+
+
+def _normalize_app_domain(value: str) -> str:
+    value = value.strip()
+    if not value:
+        return ""
+    parsed = urlparse(value)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    if parsed.scheme and parsed.path:
+        return f"{parsed.scheme}://{parsed.path}"
+    return f"https://{value.lstrip('https://').lstrip('http://').rstrip('/') }"
 
 
 def _validate_webhook_secret(secret: str, header_token: str | None = None) -> None:
@@ -185,7 +198,7 @@ async def update_tenant_telegram_config(
         if not app_domain:
             host = os.environ.get("HOSTNAME")
             if host:
-                app_domain = f"https://{host}"
+                app_domain = host
             else:
                 forwarded_proto = request.headers.get("x-forwarded-proto", "https")
                 host_header = request.headers.get("host")
@@ -195,6 +208,7 @@ async def update_tenant_telegram_config(
                         detail="HOSTNAME or APP_DOMAIN environment variable is required to set webhook URL",
                     )
                 app_domain = f"{forwarded_proto}://{host_header}"
+        app_domain = _normalize_app_domain(app_domain)
         webhook_url = f"{app_domain.rstrip('/')}{TENANT_WEBHOOK_ROUTE_PREFIX}/{tenant_id}/{webhook_secret}"
         logger.info(f"Tenant {tenant_id} webhook URL: {webhook_url}")
 
