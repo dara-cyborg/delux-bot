@@ -173,6 +173,29 @@ async def update_tenant_telegram_config(
         message_template=config.telegram_message_template,
     )
     
+    # Generate or retrieve webhook secret for tenant
+    webhook_secret = None
+    webhook_url = None
+    if config.enabled:
+        webhook_secret = get_or_create_tenant_webhook_secret(tenant_id)
+        # Build webhook URL (requires app to know its own domain)
+        app_domain = os.environ.get("APP_DOMAIN")
+        if not app_domain:
+            host = os.environ.get("HOSTNAME")
+            app_domain = f"https://{host}" if host else "https://your-app.herokuapp.com"
+        webhook_url = f"{app_domain.rstrip('/')}{WEBHOOK_ROUTE_PREFIX}/{tenant_id}/{webhook_secret}"
+
+        try:
+            set_webhook(
+                bot_token=config.telegram_bot_token,
+                webhook_url=webhook_url,
+                secret_token=webhook_secret,
+                allowed_updates=["message", "callback_query"],
+            )
+        except TelegramAPIError as exc:
+            logger.error(f"Failed to set Telegram webhook for tenant {tenant_id}: {exc}")
+            raise HTTPException(status_code=502, detail="Failed to configure Telegram webhook") from exc
+
     # Log the configuration change
     log_tenant_config_change(
         tenant_id=tenant_id,
@@ -182,15 +205,6 @@ async def update_tenant_telegram_config(
         remote_addr=x_access_token,  # We don't have direct access to client IP here
         status="success"
     )
-    
-    # Generate or retrieve webhook secret for tenant
-    webhook_secret = None
-    webhook_url = None
-    if config.enabled:
-        webhook_secret = get_or_create_tenant_webhook_secret(tenant_id)
-        # Build webhook URL (requires app to know its own domain)
-        app_domain = os.environ.get("APP_DOMAIN", "https://your-app.herokuapp.com")
-        webhook_url = f"{app_domain}/telegram/tenant-webhook/{tenant_id}/{webhook_secret}"
     
     # Return safe config without raw bot token
     safe_config = {
