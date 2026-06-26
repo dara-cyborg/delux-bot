@@ -1,5 +1,8 @@
 """Telegram callback query handling."""
 
+import re
+from datetime import datetime
+
 from telegram_bot.message_builder import (
     build_customer_list,
     build_order_details,
@@ -10,6 +13,7 @@ from telegram_bot.session_manager import (
     get_customers_for_session,
     get_orders_for_customer,
 )
+from telegram_bot.utils import build_callback_data, format_session_label
 from telegram_bot.config import BUTTON_CLOSE_MENU
 
 
@@ -42,7 +46,7 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
             session_id = parts[1]
             summary = get_session_summary(tenant_id, session_id)
             
-            name = summary.get('session_name') or session_id
+            name = format_session_label(summary.get('session_name') or session_id, session_id)
             text = (
                 f"📅 <b>Session Details</b>\n\n"
                 f"<b>Name:</b> {name}\n"
@@ -52,11 +56,11 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
             
             buttons = [
                 [
-                    {"text": "👥 View Customers", "callback_data": f"btn_custlist|{session_id}"},
-                    {"text": "📦 View Orders", "callback_data": f"btn_ordlist|{session_id}"}
+                    {"text": "👥 View Customers", "callback_data": build_callback_data('btn_custlist', session_id)},
+                    {"text": "📦 View Orders", "callback_data": build_callback_data('btn_ordlist', session_id)}
                 ],
                 [
-                    {"text": "🔙 Back to Sessions", "callback_data": "btn_sessions_page|0"},
+                    {"text": "🔙 Back to Sessions", "callback_data": build_callback_data('btn_sessions_page', '0')},
                     {"text": "❌ Close", "callback_data": "btn_close_menu"}
                 ]
             ]
@@ -75,7 +79,7 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
             if not customers:
                 text = "👥 <b>Customers:</b>\n\n<i>No customers or orders yet in this session.</i>"
                 buttons = [
-                    [{"text": "🔙 Back to Session", "callback_data": f"btn_session|{session_id}"}],
+                    [{"text": "🔙 Back to Session", "callback_data": build_callback_data('btn_session', session_id)}],
                     [{"text": "❌ Close", "callback_data": "btn_close_menu"}]
                 ]
                 return {
@@ -93,20 +97,17 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
                 count = c['order_count']
                 text_lines.append(f"{i}. 👤 <b>{name}</b> — {count} order(s)")
                 
-                max_name_len = 64 - 9 - len(session_id) - 1
-                truncated_name = name[:max_name_len]
-                
+                callback_data = build_callback_data('btn_cust', session_id, name)
                 buttons.append([{
                     "text": f"👤 {name[:20]} ({count})",
-                    "callback_data": f"btn_cust|{session_id}|{truncated_name}"
+                    "callback_data": callback_data
                 }])
                 
             if len(customers) > 15:
                 text_lines.append(f"\n<i>...and {len(customers) - 15} more customer(s).</i>")
                 
             buttons.append([
-                {"text": "🔙 Back", "callback_data": f"btn_session|{session_id}"},
-                {"text": "❌ Close", "callback_data": "btn_close_menu"}
+                    {"text": "🔙 Back", "callback_data": build_callback_data('btn_session', session_id)},
             ])
             
             return {
@@ -145,7 +146,7 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
                 
             buttons = [
                 [
-                    {"text": "🔙 Back to Customers", "callback_data": f"btn_custlist|{session_id}"},
+                    {"text": "🔙 Back to Customers", "callback_data": build_callback_data('btn_custlist', session_id)},
                     {"text": "❌ Close", "callback_data": "btn_close_menu"}
                 ]
             ]
@@ -169,14 +170,14 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
                 except Exception:
                     orders = []
                 session_name = f"Today's Orders ({today_str})"
-                back_callback = "btn_sessions_page|0"
+                back_callback = build_callback_data('btn_sessions_page', '0')
             else:
                 try:
                     orders = get_session_orders(tenant_id, session_id, limit=100)
                 except Exception:
                     orders = []
                 session_name = session_id
-                back_callback = f"btn_session|{session_id}"
+                back_callback = build_callback_data('btn_session', session_id)
                 
             if not orders:
                 text = f"📦 <b>Orders in Session {session_name}:</b>\n\n<i>No orders found.</i>"

@@ -1,6 +1,7 @@
 from datetime import datetime
 from telegram_bot.message_builder import build_session_summary, build_menu_text
 from telegram_bot.session_manager import get_sessions_paginated
+from telegram_bot.utils import build_callback_data
 from telegram_bot.config import (
     BUTTON_TODAY_SUMMARY,
     BUTTON_CUSTOMER_COUNT,
@@ -37,15 +38,15 @@ def get_sessions_menu(tenant_id: str, page: int = 0) -> dict:
         )
         buttons.append([{
             "text": f"📅 {name[:25]}",
-            "callback_data": f"btn_session|{s['session_id']}"
+            "callback_data": build_callback_data('btn_session', s['session_id'])
         }])
     
     # Add pagination buttons
     nav_buttons = []
     if page > 0:
-        nav_buttons.append({"text": "◀️ Prev", "callback_data": f"btn_sessions_page|{page - 1}"})
+        nav_buttons.append({"text": "◀️ Prev", "callback_data": build_callback_data('btn_sessions_page', str(page - 1))})
     if has_next:
-        nav_buttons.append({"text": "Next ▶️", "callback_data": f"btn_sessions_page|{page + 1}"})
+        nav_buttons.append({"text": "Next ▶️", "callback_data": build_callback_data('btn_sessions_page', str(page + 1))})
         
     if nav_buttons:
         buttons.append(nav_buttons)
@@ -90,7 +91,7 @@ def get_today_orders_summary(tenant_id: str) -> dict:
         text_lines.append(f"\n<i>...and {len(orders) - 15} more order(s).</i>")
         
     buttons = [
-        [{"text": "🔄 Refresh", "callback_data": "btn_ordlist|today"}],
+        [{"text": "🔄 Refresh", "callback_data": build_callback_data('btn_ordlist', 'today')}],
         [{"text": "❌ Close Menu", "callback_data": "btn_close_menu"}]
     ]
     
