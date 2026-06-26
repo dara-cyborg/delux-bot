@@ -345,11 +345,28 @@ class PostgresBackend(DatabaseBackend):
 
         conn.commit()
 
+    def _execute(self, query: str, params: tuple = ()) -> Any:
+        """Execute a query and recover from aborted Postgres transactions."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(self._convert_placeholders(query), params)
+            return cursor
+        except Exception as exc:
+            if getattr(psycopg, "errors", None) and isinstance(
+                exc,
+                getattr(psycopg.errors, "InFailedSqlTransaction", Exception),
+            ):
+                conn.rollback()
+                cursor = conn.cursor()
+                cursor.execute(self._convert_placeholders(query), params)
+                return cursor
+            raise
+
     def execute(self, query: str, params: tuple = ()) -> Any:
         """Execute a query."""
         conn = self._get_conn()
-        cursor = conn.cursor()
-        cursor.execute(self._convert_placeholders(query), params)
+        cursor = self._execute(query, params)
         conn.commit()
         return cursor
 
@@ -365,17 +382,13 @@ class PostgresBackend(DatabaseBackend):
 
     def execute_one(self, query: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
         """Execute a query and return single row as dict."""
-        conn = self._get_conn()
-        cursor = conn.cursor()
-        cursor.execute(self._convert_placeholders(query), params)
+        cursor = self._execute(query, params)
         row = cursor.fetchone()
         return self._dict_from_cursor_row(cursor, row)
 
     def execute_all(self, query: str, params: tuple = ()) -> List[Dict[str, Any]]:
         """Execute a query and return all rows as list of dicts."""
-        conn = self._get_conn()
-        cursor = conn.cursor()
-        cursor.execute(self._convert_placeholders(query), params)
+        cursor = self._execute(query, params)
         rows = cursor.fetchall()
         return [self._dict_from_cursor_row(cursor, row) for row in rows if row is not None]
 
