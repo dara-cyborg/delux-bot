@@ -353,16 +353,23 @@ class PostgresBackend(DatabaseBackend):
         conn.commit()
         return cursor
 
+    def _dict_from_cursor_row(self, cursor: Any, row: Any) -> Optional[Dict[str, Any]]:
+        """Convert a cursor row to a dictionary safely for psycopg cursors."""
+        if row is None:
+            return None
+        try:
+            return dict(row)
+        except (TypeError, ValueError):
+            column_names = [column[0] for column in cursor.description or []]
+            return dict(zip(column_names, row))
+
     def execute_one(self, query: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
         """Execute a query and return single row as dict."""
         conn = self._get_conn()
         cursor = conn.cursor()
         cursor.execute(self._convert_placeholders(query), params)
         row = cursor.fetchone()
-        if not row:
-            return None
-        # Convert psycopg result to dict
-        return dict(row)
+        return self._dict_from_cursor_row(cursor, row)
 
     def execute_all(self, query: str, params: tuple = ()) -> List[Dict[str, Any]]:
         """Execute a query and return all rows as list of dicts."""
@@ -370,7 +377,7 @@ class PostgresBackend(DatabaseBackend):
         cursor = conn.cursor()
         cursor.execute(self._convert_placeholders(query), params)
         rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        return [self._dict_from_cursor_row(cursor, row) for row in rows if row is not None]
 
     def close(self) -> None:
         """Close database connection."""
