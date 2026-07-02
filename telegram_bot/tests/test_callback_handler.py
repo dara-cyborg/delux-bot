@@ -112,3 +112,36 @@ def test_handle_order_list_paginates_results_and_uses_large_limit(monkeypatch):
     assert 'User 19' in response['text']
     assert 'User 9' not in response['text']
     assert 'User 20' not in response['text']
+
+
+def test_handle_customer_note_request(monkeypatch):
+    monkeypatch.setattr('telegram_bot.callback_handler.get_order', lambda tenant_id, order_id: {
+        'order_id': order_id,
+        'commenter': 'Jane',
+        'comment': '1 item',
+        'collected_at': '2026-06-25 15:00',
+    })
+
+    response = handle_callback_query('token', 'btn_customer_note|order-123', 123, 1)
+
+    assert 'Enter a note' in response['text']
+    assert response['buttons'][0][0]['callback_data'] == 'btn_customer_note_cancel|order-123'
+
+
+def test_handle_delete_order_confirmation(monkeypatch):
+    monkeypatch.setattr('telegram_bot.callback_handler.get_order', lambda tenant_id, order_id: {
+        'order_id': order_id,
+        'commenter': 'Jane',
+        'comment': '1 item',
+        'collected_at': '2026-06-25 15:00',
+    })
+    monkeypatch.setattr('telegram_bot.callback_handler.delete_order', lambda tenant_id, order_id: True)
+
+    response = handle_callback_query('token', 'btn_delete_order_request|order-123', 123, 1)
+
+    assert 'Delete order for Jane?' in response['text']
+    assert response['buttons'][0][0]['callback_data'] == 'btn_delete_order_confirm|order-123'
+    assert response['buttons'][0][1]['callback_data'] == 'btn_delete_order_cancel|order-123'
+
+    response_confirm = handle_callback_query('token', 'btn_delete_order_confirm|order-123', 123, 1)
+    assert 'Order deleted successfully' in response_confirm['text']

@@ -13,6 +13,8 @@ from telegram_bot.session_manager import (
     get_customers_for_session,
     get_orders_for_customer,
 )
+from telegram_bot.tenant_store import get_order, delete_order
+from telegram_bot.commands import set_pending_note_request, clear_pending_note_request
 from telegram_bot.utils import build_callback_data, format_local_time, format_session_label
 from telegram_bot.config import BUTTON_CLOSE_MENU
 
@@ -58,7 +60,6 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
             buttons = [
                 [
                     {"text": "👥 View Customers", "callback_data": build_callback_data('btn_custlist', session_id)},
-                    {"text": "📦 View Orders", "callback_data": build_callback_data('btn_ordlist', session_id)}
                 ],
                 [
                     {"text": "🔙 Back to Sessions", "callback_data": build_callback_data('btn_sessions_page', '0')},
@@ -176,6 +177,97 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
                 'parse_mode': 'HTML'
             }
             
+        # 5. btn_customer_note|{order_id}
+        elif action == 'btn_customer_note':
+            order_id = parts[1] if len(parts) > 1 else ''
+            order = get_order(tenant_id, order_id)
+            if not order:
+                return {
+                    'text': '<b>Order not found.</b>',
+                    'buttons': _close_button(),
+                    'notification': 'Order not found.',
+                    'parse_mode': 'HTML'
+                }
+
+            set_pending_note_request(chat_id, order_id)
+            text = (
+                f"<b>Enter a note for {format_session_label(order['commenter'], order['commenter'])}.</b>\n"
+                "Send your note as plain text (max 50 characters)."
+            )
+            buttons = [[
+                {"text": "Cancel", "callback_data": build_callback_data('btn_customer_note_cancel', order_id)}
+            ]]
+            return {
+                'text': text,
+                'buttons': buttons,
+                'notification': 'Enter a note.',
+                'parse_mode': 'HTML'
+            }
+
+        elif action == 'btn_customer_note_cancel':
+            clear_pending_note_request(chat_id)
+            return {
+                'text': '<b>Note entry canceled.</b>',
+                'buttons': _close_button(),
+                'notification': 'Note canceled.',
+                'parse_mode': 'HTML'
+            }
+
+        elif action == 'btn_delete_order_request':
+            order_id = parts[1] if len(parts) > 1 else ''
+            order = get_order(tenant_id, order_id)
+            if not order:
+                return {
+                    'text': '<b>Order not found.</b>',
+                    'buttons': _close_button(),
+                    'notification': 'Order not found.',
+                    'parse_mode': 'HTML'
+                }
+
+            text = (
+                f"<b>Delete order for {order['commenter']}?</b>\n"
+                "Confirm to remove this order permanently."
+            )
+            buttons = [
+                [
+                    {"text": "Confirm", "callback_data": build_callback_data('btn_delete_order_confirm', order_id)},
+                    {"text": "Cancel", "callback_data": build_callback_data('btn_delete_order_cancel', order_id)},
+                ]
+            ]
+            return {
+                'text': text,
+                'buttons': buttons,
+                'notification': 'Confirm delete.',
+                'parse_mode': 'HTML'
+            }
+
+        elif action == 'btn_delete_order_confirm':
+            order_id = parts[1] if len(parts) > 1 else ''
+            order = get_order(tenant_id, order_id)
+            if not order:
+                return {
+                    'text': '<b>Order not found.</b>',
+                    'buttons': _close_button(),
+                    'notification': 'Order not found.',
+                    'parse_mode': 'HTML'
+                }
+
+            delete_order(tenant_id, order_id)
+            return {
+                'text': '<b>Order deleted successfully.</b>',
+                'buttons': _close_button(),
+                'notification': 'Order deleted.',
+                'parse_mode': 'HTML'
+            }
+
+        elif action == 'btn_delete_order_cancel':
+            return {
+                'text': '<b>Delete canceled.</b>',
+                'buttons': _close_button(),
+                'notification': 'Delete canceled.',
+                'parse_mode': 'HTML'
+            }
+
         # 5. btn_ordlist|{session_id}|{page}
         elif action == 'btn_ordlist':
             session_id = parts[1]

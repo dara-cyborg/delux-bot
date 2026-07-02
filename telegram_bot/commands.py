@@ -1,5 +1,5 @@
 from datetime import datetime
-from telegram_bot.message_builder import build_session_summary, build_menu_text
+from telegram_bot.message_builder import build_session_summary, build_menu_text, escape_html
 from telegram_bot.session_manager import get_sessions_paginated
 from telegram_bot.utils import build_callback_data
 from telegram_bot.config import (
@@ -8,6 +8,21 @@ from telegram_bot.config import (
     BUTTON_CUSTOMER_ORDERS,
     BUTTON_CLOSE_MENU,
 )
+
+
+pending_note_requests: dict[str, str] = {}
+
+
+def get_pending_note_request(chat_id: int | str) -> str | None:
+    return pending_note_requests.get(str(chat_id))
+
+
+def set_pending_note_request(chat_id: int | str, order_id: str) -> None:
+    pending_note_requests[str(chat_id)] = order_id
+
+
+def clear_pending_note_request(chat_id: int | str) -> None:
+    pending_note_requests.pop(str(chat_id), None)
 
 
 def get_sessions_menu(tenant_id: str, page: int = 0) -> dict:
@@ -108,7 +123,48 @@ def get_today_orders_summary(tenant_id: str) -> dict:
 
 def handle_command(bot_token: str, chat_id: int, text: str, tenant_id: str = "") -> dict:
     """Handle text commands from user."""
-    normalized = text.strip().lower()
+    normalized = text.strip()
+    lower = normalized.lower()
+
+    from telegram_bot.tenant_store import get_order, update_order
+
+    if tenant_id:
+        pending_order_id = get_pending_note_request(chat_id)
+        if pending_order_id and not lower.startswith('/'):
+            note = normalized.strip()
+            if not note:
+                return {
+                    'text': '<b>Please send a non-empty note.</b>\nThe note must be 50 characters or less.',
+                    'parse_mode': 'HTML',
+                }
+            if len(note) > 50:
+                return {
+                    'text': '<b>Note too long.</b> Please send a note with 50 characters or less.',
+                    'parse_mode': 'HTML',
+                }
+
+            order = get_order(tenant_id, pending_order_id)
+            clear_pending_note_request(chat_id)
+            if not order:
+                return {
+                    'text': '<b>Could not find the order to attach the note.</b>',
+                    'parse_mode': 'HTML',
+                }
+
+            update_order(
+                tenant_id,
+                pending_order_id,
+                customer_note=note,
+            )
+            return {
+                'text': (
+                    f"<b>Note saved for {escape_html(order['commenter'])}.</b>\n"
+                    f"Note: {escape_html(note)}"
+                ),
+                'parse_mode': 'HTML',
+            }
+
+    normalized = lower
 
     if normalized == '/start':
         welcome = (

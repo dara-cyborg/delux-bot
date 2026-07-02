@@ -124,6 +124,7 @@ def save_order(
     comment_id: Optional[str] = None,
     collected_at: Optional[str] = None,
     profile_url: Optional[str] = None,
+    customer_note: Optional[str] = None,
     order_date: Optional[str] = None,
     source_host: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -139,12 +140,12 @@ def save_order(
     db.execute("""
         INSERT INTO orders
         (order_id, tenant_id, session_id, commenter, comment, comment_id,
-         collected_at, printed_at, profile_url, order_date, source_host,
+         collected_at, printed_at, profile_url, customer_note, order_date, source_host,
          created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (order_id, tenant_id, session_id, commenter, comment, comment_id,
-          collected_at or now, now, profile_url, order_date or now.split("T")[0],
-          source_host or "api", now, now))
+          collected_at or now, now, profile_url, customer_note,
+          order_date or now.split("T")[0], source_host or "api", now, now))
 
     return db.execute_one("SELECT * FROM orders WHERE order_id = ?", (order_id,))
 
@@ -243,6 +244,7 @@ def update_order(
     order_id: str,
     comment: Optional[str] = None,
     profile_url: Optional[str] = None,
+    customer_note: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """Update an order"""
     db = get_db()
@@ -256,6 +258,9 @@ def update_order(
     if profile_url is not None:
         updates.append("profile_url = ?")
         params.append(profile_url)
+    if customer_note is not None:
+        updates.append("customer_note = ?")
+        params.append(customer_note)
 
     if not updates:
         return get_order(tenant_id, order_id)
@@ -269,6 +274,22 @@ def update_order(
     )
 
     return get_order(tenant_id, order_id)
+
+
+def delete_order(
+    tenant_id: str,
+    order_id: str,
+) -> bool:
+    """Delete an order by tenant and order ID."""
+    db = get_db()
+    db.execute(
+        "DELETE FROM orders WHERE tenant_id = ? AND order_id = ?",
+        (tenant_id, order_id),
+    )
+    return db.execute_one(
+        "SELECT order_id FROM orders WHERE tenant_id = ? AND order_id = ?",
+        (tenant_id, order_id),
+    ) is None
 
 
 def get_tenant_orders_by_date(

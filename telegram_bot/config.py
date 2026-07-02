@@ -16,7 +16,6 @@ PARSE_MODE_MARKDOWN = "Markdown"
 DEFAULT_ORDER_TEMPLATE = """🧾 <b>New Live Order</b>
 <b>Name:</b> {commenter}
 <b>Comment:</b> {comment}
-<b>Profile:</b> {profile_url}
 <b>Time:</b> {collected_at}"""
 
 DEFAULT_SESSION_SUMMARY_TEMPLATE = """📋 <b>Live Session</b>

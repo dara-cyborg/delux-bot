@@ -64,7 +64,8 @@ def build_order_message(
     safe_commenter = escape_html(commenter)
     safe_comment = escape_html(comment)
     safe_profile = escape_html(profile_url) if profile_url else "N/A"
-    safe_time = escape_html(collected_at) if collected_at else "N/A"
+    safe_time_formatted = escape_html(format_local_time(collected_at)) if collected_at else "N/A"
+    safe_time_raw = escape_html(collected_at) if collected_at else "N/A"
     
     # Use provided template or default
     msg = template if template else DEFAULT_ORDER_TEMPLATE
@@ -74,14 +75,14 @@ def build_order_message(
         formatted = msg.replace("{{commenter}}", safe_commenter)
         formatted = formatted.replace("{{comment}}", safe_comment)
         formatted = formatted.replace("{{profile_url}}", safe_profile)
-        formatted = formatted.replace("{{collected_at}}", safe_time)
+        formatted = formatted.replace("{{collected_at}}", safe_time_raw)
         formatted = formatted.replace("{{comment_id}}", comment_id or "")
     else:
         formatted = msg.format(
             commenter=safe_commenter,
             comment=safe_comment,
             profile_url=safe_profile,
-            collected_at=safe_time,
+            collected_at=safe_time_formatted,
             comment_id=comment_id or "",
         )
 
@@ -194,6 +195,7 @@ def build_order_details(
     comment: str,
     collected_at: Optional[str] = None,
     profile_url: Optional[str] = None,
+    customer_note: Optional[str] = None,
 ) -> str:
     """
     Build a detailed order view for menu display.
@@ -203,6 +205,7 @@ def build_order_details(
         comment: Order comment
         collected_at: Collection time
         profile_url: Customer profile URL (ignored)
+        customer_note: Optional customer note text
     
     Returns:
         HTML-formatted order details
@@ -210,10 +213,12 @@ def build_order_details(
     safe_comment = escape_html(comment)
     safe_time = escape_html(format_local_time(collected_at)) if collected_at else "N/A"
     
-    return f"""{EMOJI_ORDER} <b>Order Details</b>
-
-<b>Order:</b> {safe_comment}
-<b>Time:</b> {safe_time}"""
+    details = [f"{EMOJI_ORDER} <b>Order Details</b>", "", f"<b>Order:</b> {safe_comment}", f"<b>Time:</b> {safe_time}"]
+    if customer_note:
+        safe_note = escape_html(customer_note)
+        details.append(f"<b>Note:</b> {safe_note}")
+    
+    return "\n".join(details)
 
 
 def build_pagination_info(page: int, total_pages: int) -> str:

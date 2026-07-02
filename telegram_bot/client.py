@@ -353,6 +353,7 @@ async def send_alert_with_tenant_credentials(
     tenant_bot_token: str,
     tenant_chat_id: str,
     message: str,
+    buttons: list[list[Dict[str, str]]] | None = None,
     parse_mode: str = PARSE_MODE_HTML,
 ) -> Dict[str, Any]:
     """
@@ -366,6 +367,7 @@ async def send_alert_with_tenant_credentials(
         tenant_bot_token: Telegram bot token belonging to the tenant
         tenant_chat_id: Telegram chat ID for the tenant
         message: Message text to send
+        buttons: Optional inline keyboard buttons to include on the alert
         parse_mode: Parse mode for formatting (HTML or Markdown)
     
     Returns:
@@ -387,6 +389,8 @@ async def send_alert_with_tenant_credentials(
         'text': message,
         'parse_mode': parse_mode,
     }
+    if buttons:
+        data['reply_markup'] = {'inline_keyboard': buttons}
     
     try:
         result = await _make_request_async('POST', 'sendMessage', tenant_bot_token, data)

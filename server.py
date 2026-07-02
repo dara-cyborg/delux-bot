@@ -31,6 +31,7 @@ from telegram_bot.storage import (
     get_tenant_by_chat_id,
     register_storage_provider,
 )
+from telegram_bot.utils import build_callback_data
 from telegram_bot.tenant_store import (
     init_db,
     get_tenant_by_chat_id as tenant_store_get_tenant_by_chat_id,
@@ -43,6 +44,7 @@ from telegram_bot.tenant_store import (
     get_or_create_tenant_webhook_secret,
     validate_webhook_secret,
 )
+from telegram_bot.utils import build_callback_data
 from telegram_bot.audit import log_tenant_config_change, log_order_ingestion, log_webhook_event
 from telegram_bot.middleware import RateLimitMiddleware
 
@@ -95,7 +97,7 @@ app = FastAPI(title="Delux Crawler Telegram Bot Webhook", lifespan=lifespan)
 app.add_middleware(RateLimitMiddleware, requests_per_minute=100)
 
 WEBHOOK_SECRET_ENV = "TELEGRAM_WEBHOOK_SECRET"
-BOT_TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
+BOT_TOKEN_ENV = "8095679105:AAHhYyFMAXmutNyHQw1PY_-ouz72Lp0iVlg"
 API_ACCESS_TOKEN_ENV = "X_ACCESS_TOKEN"
 WEBHOOK_ROUTE_PREFIX = "/telegram/webhook"
 TENANT_WEBHOOK_ROUTE_PREFIX = "/telegram/tenant-webhook"
@@ -392,12 +394,25 @@ async def create_tenant_order(
             comment_id=order.comment_id,
             template=telegram_config.get("telegram_message_template"),
         )
+        buttons = [
+            [
+                {
+                    "text": "📝 Add note",
+                    "callback_data": build_callback_data('btn_customer_note', saved_order.get('order_id', ''))
+                },
+                {
+                    "text": "🗑️ Delete order",
+                    "callback_data": build_callback_data('btn_delete_order_request', saved_order.get('order_id', ''))
+                }
+            ]
+        ]
         try:
             await send_alert_with_tenant_credentials(
                 tenant_id=tenant_id,
                 tenant_bot_token=telegram_config.get("telegram_bot_token", ""),
                 tenant_chat_id=telegram_config.get("telegram_chat_id", ""),
                 message=message_text,
+                buttons=buttons,
             )
         except TelegramAPIError as exc:
             logger.error(f"Failed to deliver tenant alert for {tenant_id}: {exc}")

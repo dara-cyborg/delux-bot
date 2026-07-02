@@ -16,8 +16,9 @@ def test_build_order_message_default_template():
 
     assert 'John Doe' in output
     assert '&lt;1&gt;' in output
-    assert 'https://t.me/john' in output
     assert '<b>Name:</b>' in output
+    assert '<b>Profile:</b>' not in output
+    assert '3:00 PM' in output
 
 
 def test_build_order_message_custom_template_mustache():
