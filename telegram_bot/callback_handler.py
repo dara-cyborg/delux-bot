@@ -155,6 +155,7 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
             orders = get_orders_for_customer(tenant_id, session_id, full_name)
             
             text_lines = [f"👤 <b>Orders for {full_name}:</b>\n"]
+            buttons = []
             for i, o in enumerate(orders, 1):
                 comment = o['comment']
                 time_str = format_local_time(o.get('collected_at', ''))
@@ -163,13 +164,24 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
                     f"   <b>Time:</b> {time_str}"
                 )
                 text_lines.append("")
-                
-            buttons = [
-                [
-                    {"text": "🔙 Back to Customers", "callback_data": build_callback_data('btn_custlist', session_id)},
-                    {"text": "❌ Close", "callback_data": "btn_close_menu"}
-                ]
-            ]
+
+                order_id = o.get('order_id')
+                if order_id:
+                    buttons.append([
+                        {
+                            "text": f"📝 Note {i}",
+                            "callback_data": build_callback_data('btn_customer_note', order_id)
+                        },
+                        {
+                            "text": f"🗑️ Delete {i}",
+                            "callback_data": build_callback_data('btn_delete_order_request', order_id)
+                        }
+                    ])
+
+            buttons.append([
+                {"text": "🔙 Back to Customers", "callback_data": build_callback_data('btn_custlist', session_id)},
+                {"text": "❌ Close", "callback_data": "btn_close_menu"}
+            ])
             return {
                 'text': "\n".join(text_lines),
                 'buttons': buttons,
@@ -310,11 +322,25 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
             page_orders = orders[start:end]
             
             text_lines = [f"📦 <b>Orders in Session {session_name[:20]}:</b>\n"]
+            buttons = []
             for i, o in enumerate(page_orders, start + 1):
                 commenter = o['commenter']
                 comment = o['comment']
                 time_str = format_local_time(o.get('collected_at', ''))
                 text_lines.append(f"{i}. 👤 <b>{commenter}</b>: {comment} (at {time_str})")
+
+                order_id = o.get('order_id')
+                if order_id:
+                    buttons.append([
+                        {
+                            "text": f"📝 Note {i}",
+                            "callback_data": build_callback_data('btn_customer_note', order_id)
+                        },
+                        {
+                            "text": f"🗑️ Delete {i}",
+                            "callback_data": build_callback_data('btn_delete_order_request', order_id)
+                        }
+                    ])
                 
             if len(orders) > page_size:
                 range_end = min(end, len(orders))

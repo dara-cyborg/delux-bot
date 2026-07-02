@@ -57,6 +57,38 @@ def test_handle_customer_orders(monkeypatch):
     assert 'Order details shown' in response['notification']
 
 
+def test_handle_customer_order_action_buttons(monkeypatch):
+    monkeypatch.setattr(
+        'telegram_bot.callback_handler.get_customers_for_session',
+        lambda tenant_id, session_id: [
+            {'name': 'Jane', 'order_count': 1},
+        ],
+    )
+    monkeypatch.setattr(
+        'telegram_bot.callback_handler.get_orders_for_customer',
+        lambda tenant_id, session_id, customer_name: [
+            {
+                'order_id': 'order-123',
+                'comment': '2 pcs',
+                'collected_at': '2026-06-25 15:00',
+            },
+        ],
+    )
+
+    response = handle_callback_query('token', 'btn_cust|session-1|Jane', 123, 1)
+
+    assert any(
+        button['callback_data'].startswith('btn_customer_note|')
+        for row in response['buttons']
+        for button in row
+    )
+    assert any(
+        button['callback_data'].startswith('btn_delete_order_request|')
+        for row in response['buttons']
+        for button in row
+    )
+
+
 def test_handle_close_menu():
     response = handle_callback_query('token', 'btn_close_menu', 123, 1)
 

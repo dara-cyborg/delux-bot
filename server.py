@@ -97,7 +97,7 @@ app = FastAPI(title="Delux Crawler Telegram Bot Webhook", lifespan=lifespan)
 app.add_middleware(RateLimitMiddleware, requests_per_minute=100)
 
 WEBHOOK_SECRET_ENV = "TELEGRAM_WEBHOOK_SECRET"
-BOT_TOKEN_ENV = "8095679105:AAHhYyFMAXmutNyHQw1PY_-ouz72Lp0iVlg"
+BOT_TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
 API_ACCESS_TOKEN_ENV = "X_ACCESS_TOKEN"
 WEBHOOK_ROUTE_PREFIX = "/telegram/webhook"
 TENANT_WEBHOOK_ROUTE_PREFIX = "/telegram/tenant-webhook"
