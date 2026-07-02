@@ -167,13 +167,16 @@ def handle_callback_query(bot_token: str, data: str, chat_id: int, message_id: i
 
                 order_id = o.get('order_id')
                 if order_id:
+                    label = str(comment).strip() or str(order_id)
+                    if len(label) > 20:
+                        label = label[:17] + '...'
                     buttons.append([
                         {
-                            "text": f"📝 Note {i}",
+                            "text": label,
                             "callback_data": build_callback_data('btn_customer_note', order_id)
                         },
                         {
-                            "text": f"🗑️ Delete {i}",
+                            "text": "🗑️ Delete",
                             "callback_data": build_callback_data('btn_delete_order_request', order_id)
                         }
                     ])

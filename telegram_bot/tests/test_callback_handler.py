@@ -69,7 +69,7 @@ def test_handle_customer_order_action_buttons(monkeypatch):
         lambda tenant_id, session_id, customer_name: [
             {
                 'order_id': 'order-123',
-                'comment': '2 pcs',
+                'comment': '190',
                 'collected_at': '2026-06-25 15:00',
             },
         ],
@@ -84,6 +84,11 @@ def test_handle_customer_order_action_buttons(monkeypatch):
     )
     assert any(
         button['callback_data'].startswith('btn_delete_order_request|')
+        for row in response['buttons']
+        for button in row
+    )
+    assert any(
+        button['text'] == '190'
         for row in response['buttons']
         for button in row
     )
